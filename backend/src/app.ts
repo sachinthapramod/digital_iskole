@@ -2,12 +2,18 @@ import express, { Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import path from 'path';
+import fs from 'fs';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import { generalRateLimiter } from './middleware/rateLimit.middleware';
 import logger from './utils/logger';
 
-// Load environment variables
-dotenv.config();
+// Load environment variables from backend/.env
+// Try multiple possible paths to find .env file
+const envPath = path.resolve(process.cwd(), '.env');
+const envPathAlt = path.resolve(__dirname, '../.env');
+const finalEnvPath = fs.existsSync(envPath) ? envPath : envPathAlt;
+dotenv.config({ path: finalEnvPath });
 
 // Import routes
 import authRoutes from './routes/auth.routes';
@@ -39,7 +45,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Request logging
-app.use((req, res, next) => {
+app.use((req, _res, next) => {
   logger.info(`${req.method} ${req.path}`, {
     ip: req.ip,
     userAgent: req.get('user-agent'),
@@ -48,7 +54,7 @@ app.use((req, res, next) => {
 });
 
 // Health check endpoint
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),

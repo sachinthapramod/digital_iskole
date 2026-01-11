@@ -48,6 +48,7 @@ FIREBASE_PROJECT_ID=your-project-id
 FIREBASE_CLIENT_EMAIL=firebase-adminsdk@your-project.iam.gserviceaccount.com
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYOUR_PRIVATE_KEY_HERE\n-----END PRIVATE KEY-----\n"
 FIREBASE_STORAGE_BUCKET=your-project-id.appspot.com
+FIREBASE_WEB_API_KEY=AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 # JWT Configuration
 JWT_SECRET=your-super-secret-jwt-key-change-in-production
@@ -57,17 +58,27 @@ JWT_REFRESH_EXPIRES_IN=7d
 
 **Important Notes:**
 - `FIREBASE_PRIVATE_KEY` must include the full private key with `\n` newlines
+- `FIREBASE_WEB_API_KEY` is the same as the `apiKey` from your Firebase Web App configuration (found in Project Settings > Your apps > Web app > Config)
 - `JWT_SECRET` should be a strong random string (use `openssl rand -base64 32` to generate)
 - Never commit `.env` file to version control
 
-### 1.3 Get Firebase Service Account Key
+### 1.3 Get Firebase Credentials
 
+**Get Firebase Web API Key:**
 1. Go to [Firebase Console](https://console.firebase.google.com/)
 2. Select your project
-3. Go to **Project Settings** > **Service Accounts**
-4. Click **Generate New Private Key**
-5. Copy the `private_key` value (including `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----`)
-6. Paste into `.env` as `FIREBASE_PRIVATE_KEY` (replace `\n` with actual newlines or use the format shown above)
+3. Go to **Project Settings** (gear icon ⚙️)
+4. Scroll down to **"Your apps"** section
+5. Click on your **Web app** (or create one if you don't have it)
+6. Find the `apiKey` in the config object - this is your `FIREBASE_WEB_API_KEY`
+7. Copy it to `.env` as `FIREBASE_WEB_API_KEY`
+
+**Get Firebase Service Account Key:**
+1. Still in **Project Settings** (gear icon ⚙️)
+2. Click on the **"Service accounts"** tab (at the top)
+3. Click **Generate New Private Key**
+4. Copy the `private_key` value (including `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----`)
+5. Paste into `.env` as `FIREBASE_PRIVATE_KEY` (replace `\n` with actual newlines or use the format shown above)
 
 ---
 

@@ -23,4 +23,10 @@ export const changePasswordValidator = [
   body('newPassword').notEmpty().withMessage('New password is required').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
 ];
 
+export const updateProfileValidator = [
+  body('displayName').optional().trim().isLength({ min: 2, max: 100 }).withMessage('Display name must be between 2 and 100 characters'),
+  body('phone').optional().trim().matches(/^\+?[1-9]\d{1,14}$/).withMessage('Invalid phone number format'),
+  body('photoURL').optional().isURL().withMessage('Invalid photo URL'),
+];
+
 

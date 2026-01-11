@@ -9,23 +9,23 @@ const router = Router();
 router.use(authenticateToken);
 router.use(uploadRateLimiter);
 
-router.post('/profile-picture', uploadSingle, (req, res) => {
+router.post('/profile-picture', uploadSingle, (_req, res) => {
   res.json({ message: 'Upload profile picture - to be implemented' });
 });
 
-router.post('/exam-paper', requireTeacher, uploadSingle, (req, res) => {
+router.post('/exam-paper', requireTeacher, uploadSingle, (_req, res) => {
   res.json({ message: 'Upload exam paper - to be implemented' });
 });
 
-router.post('/notice-attachment', requireAdminOrTeacher, uploadSingle, (req, res) => {
+router.post('/notice-attachment', requireAdminOrTeacher, uploadSingle, (_req, res) => {
   res.json({ message: 'Upload notice attachment - to be implemented' });
 });
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', (_req, res) => {
   res.json({ message: 'Delete file - to be implemented' });
 });
 
-router.get('/:id/signed-url', (req, res) => {
+router.get('/:id/signed-url', (_req, res) => {
   res.json({ message: 'Get signed URL - to be implemented' });
 });
 

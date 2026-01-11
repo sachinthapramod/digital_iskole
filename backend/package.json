@@ -14,7 +14,8 @@
     "lint:fix": "eslint src --ext .ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",
     "seed": "ts-node scripts/seed-database.ts",
-    "create-admin": "ts-node scripts/create-admin.ts"
+    "create-admin": "ts-node scripts/create-admin.ts",
+    "check-env": "node check-env.js"
   },
   "keywords": [
     "school-management",

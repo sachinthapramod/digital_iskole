@@ -57,8 +57,7 @@ export function sendPaginated<T>(
   data: T[],
   page: number,
   limit: number,
-  total: number,
-  message?: string
+  total: number
 ): void {
   const totalPages = Math.ceil(total / limit);
   const response: PaginatedResponse<T> = {

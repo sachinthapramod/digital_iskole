@@ -32,13 +32,13 @@ export default function LoginPage() {
     setError("")
     setIsSubmitting(true)
 
-    const success = await login(email, password)
+    const result = await login(email, password)
 
-    if (success) {
+    if (result.success) {
       // Redirect based on role will be handled by middleware or auth context
       router.push("/dashboard")
     } else {
-      setError(t("invalidCredentials"))
+      setError(result.error?.message || t("invalidCredentials"))
     }
 
     setIsSubmitting(false)

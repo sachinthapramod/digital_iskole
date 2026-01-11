@@ -1,25 +1,179 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useLanguage } from "@/lib/i18n/context"
-import { useAuth } from "@/lib/auth/context"
-import { Mail, Phone, MapPin, Calendar, Shield, Save, Eye, EyeOff, Lock } from "lucide-react"
+import { useAuth, type User } from "@/lib/auth/context"
+import { Mail, Phone, MapPin, Calendar, Shield, Save, Eye, EyeOff, Lock, Loader2, AlertCircle, CheckCircle2 } from "lucide-react"
 
 export default function ProfilePage() {
   const { t } = useLanguage()
-  const { user } = useAuth()
+  const { user, updateUser } = useAuth()
   const [showCurrentPassword, setShowCurrentPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [passwords, setPasswords] = useState({ current: "", new: "", confirm: "" })
+  const [profileData, setProfileData] = useState({
+    firstName: "",
+    lastName: "",
+    phone: "",
+    dateOfBirth: "",
+    address: "",
+  })
+  const [isSaving, setIsSaving] = useState(false)
+  const [isChangingPassword, setIsChangingPassword] = useState(false)
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  const handleSave = () => {
-    alert("Profile updated successfully!")
+  // Initialize form data from user (only on mount or when user ID changes)
+  useEffect(() => {
+    if (user && !profileData.firstName && !profileData.lastName) {
+      const nameParts = user.name?.split(" ") || []
+      setProfileData({
+        firstName: nameParts[0] || "",
+        lastName: nameParts.slice(1).join(" ") || "",
+        phone: user.phone || "",
+        dateOfBirth: "",
+        address: "",
+      })
+    }
+  }, [user?.id]) // Only initialize when user ID changes (first load or after login)
+
+  const handleSave = async () => {
+    setIsSaving(true)
+    setMessage(null)
+    
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
+      const token = localStorage.getItem("digital-iskole-token")
+      
+      if (!token) {
+        setMessage({ type: 'error', text: 'Not authenticated. Please login again.' })
+        setIsSaving(false)
+        return
+      }
+
+      const displayName = `${profileData.firstName} ${profileData.lastName}`.trim()
+
+      const response = await fetch(`${API_URL}/auth/profile`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          displayName: displayName || undefined,
+          phone: profileData.phone || undefined,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        setMessage({ 
+          type: 'error', 
+          text: data.message || data.error?.message || 'Failed to update profile' 
+        })
+        setIsSaving(false)
+        return
+      }
+
+      // Update auth context with new user data
+      if (data.data?.user) {
+        const updatedUser = { ...user, ...data.data.user } as User
+        updateUser(updatedUser)
+        
+        // Update form data with saved values
+        const nameParts = updatedUser.name?.split(" ") || []
+        setProfileData({
+          firstName: nameParts[0] || "",
+          lastName: nameParts.slice(1).join(" ") || "",
+          phone: updatedUser.phone || profileData.phone,
+          dateOfBirth: profileData.dateOfBirth,
+          address: profileData.address,
+        })
+      }
+      
+      setMessage({ type: 'success', text: 'Profile updated successfully!' })
+      
+      // Clear message after 3 seconds
+      setTimeout(() => setMessage(null), 3000)
+    } catch (error: any) {
+      console.error('Profile update error:', error)
+      setMessage({ 
+        type: 'error', 
+        text: error.message || 'Network error. Please try again.' 
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleChangePassword = async () => {
+    if (passwords.new !== passwords.confirm) {
+      setMessage({ type: 'error', text: 'New passwords do not match' })
+      return
+    }
+
+    if (passwords.new.length < 6) {
+      setMessage({ type: 'error', text: 'Password must be at least 6 characters' })
+      return
+    }
+
+    setIsChangingPassword(true)
+    setMessage(null)
+
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
+      const token = localStorage.getItem("digital-iskole-token")
+      
+      if (!token) {
+        setMessage({ type: 'error', text: 'Not authenticated. Please login again.' })
+        setIsChangingPassword(false)
+        return
+      }
+
+      const response = await fetch(`${API_URL}/auth/change-password`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          currentPassword: passwords.current,
+          newPassword: passwords.new,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        setMessage({ 
+          type: 'error', 
+          text: data.message || data.error?.message || 'Failed to change password' 
+        })
+        setIsChangingPassword(false)
+        return
+      }
+
+      setMessage({ type: 'success', text: 'Password changed successfully!' })
+      setPasswords({ current: "", new: "", confirm: "" })
+      
+      // Clear message after 3 seconds
+      setTimeout(() => setMessage(null), 3000)
+    } catch (error: any) {
+      console.error('Change password error:', error)
+      setMessage({ 
+        type: 'error', 
+        text: error.message || 'Network error. Please try again.' 
+      })
+    } finally {
+      setIsChangingPassword(false)
+    }
   }
 
   return (
@@ -46,23 +200,23 @@ export default function ProfilePage() {
               <div className="w-full space-y-3 sm:space-y-4 text-left">
                 <div className="flex items-center gap-3">
                   <Mail className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  <span className="text-sm text-foreground truncate">{user?.email}</span>
+                  <span className="text-sm text-foreground truncate">{user?.email || 'N/A'}</span>
                 </div>
-                <div className="flex items-center gap-3">
-                  <Phone className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  <span className="text-sm text-foreground">+94 71 234 5678</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  <span className="text-sm text-foreground">Colombo, Sri Lanka</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Calendar className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  <span className="text-sm text-foreground">Joined Dec 2023</span>
-                </div>
+                {user?.phone && (
+                  <div className="flex items-center gap-3">
+                    <Phone className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <span className="text-sm text-foreground">{user.phone}</span>
+                  </div>
+                )}
+                {profileData.address && (
+                  <div className="flex items-center gap-3">
+                    <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <span className="text-sm text-foreground">{profileData.address}</span>
+                  </div>
+                )}
                 <div className="flex items-center gap-3">
                   <Shield className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  <span className="text-sm text-foreground capitalize">{user?.role} Access</span>
+                  <span className="text-sm text-foreground capitalize">{user?.role || 'N/A'} Access</span>
                 </div>
               </div>
             </div>
@@ -76,36 +230,68 @@ export default function ProfilePage() {
             <CardDescription className="text-xs sm:text-sm">Update your personal information</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 sm:space-y-6">
+            {message && (
+              <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
+                {message.type === 'error' ? (
+                  <AlertCircle className="h-4 w-4" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4" />
+                )}
+                <AlertDescription>{message.text}</AlertDescription>
+              </Alert>
+            )}
+
             <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>First Name</Label>
-                <Input defaultValue={user?.name?.split(" ")[0]} />
+                <Input 
+                  value={profileData.firstName}
+                  onChange={(e) => setProfileData({ ...profileData, firstName: e.target.value })}
+                  placeholder="First Name"
+                />
               </div>
               <div className="space-y-2">
                 <Label>Last Name</Label>
-                <Input defaultValue={user?.name?.split(" ").slice(1).join(" ")} />
+                <Input 
+                  value={profileData.lastName}
+                  onChange={(e) => setProfileData({ ...profileData, lastName: e.target.value })}
+                  placeholder="Last Name"
+                />
               </div>
             </div>
 
             <div className="space-y-2">
               <Label>{t("email")}</Label>
-              <Input type="email" defaultValue={user?.email} />
+              <Input type="email" value={user?.email || ""} disabled />
+              <p className="text-xs text-muted-foreground">Email cannot be changed</p>
             </div>
 
             <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Phone Number</Label>
-                <Input defaultValue="+94 71 234 5678" />
+                <Input 
+                  value={profileData.phone}
+                  onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
+                  placeholder="+94 71 234 5678"
+                />
               </div>
               <div className="space-y-2">
                 <Label>Date of Birth</Label>
-                <Input type="date" defaultValue="1985-06-15" />
+                <Input 
+                  type="date" 
+                  value={profileData.dateOfBirth}
+                  onChange={(e) => setProfileData({ ...profileData, dateOfBirth: e.target.value })}
+                />
               </div>
             </div>
 
             <div className="space-y-2">
               <Label>Address</Label>
-              <Input defaultValue="123 Main Street, Colombo 07" />
+              <Input 
+                value={profileData.address}
+                onChange={(e) => setProfileData({ ...profileData, address: e.target.value })}
+                placeholder="123 Main Street, Colombo 07"
+              />
             </div>
 
             <Separator />
@@ -198,11 +384,44 @@ export default function ProfilePage() {
               </CardContent>
             </Card>
 
-            <div className="flex justify-end">
-              <Button onClick={handleSave} className="w-full sm:w-auto">
-                <Save className="h-4 w-4 mr-2" />
-                {t("save")}
+            <div className="flex flex-col sm:flex-row justify-end gap-2">
+              <Button 
+                onClick={handleSave} 
+                disabled={isSaving}
+                className="w-full sm:w-auto"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-2" />
+                    {t("save") || "Save Profile"}
+                  </>
+                )}
               </Button>
+              {passwords.current && passwords.new && passwords.confirm && (
+                <Button 
+                  onClick={handleChangePassword} 
+                  disabled={isChangingPassword}
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                >
+                  {isChangingPassword ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Changing...
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="h-4 w-4 mr-2" />
+                      Change Password
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -3,7 +3,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { User } from '../types';
 import { ApiErrorResponse } from '../utils/response';
 import logger from '../utils/logger';
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
@@ -28,20 +28,65 @@ export interface LoginResult {
 export class AuthService {
   async login(email: string, password: string): Promise<LoginResult> {
     try {
-      // IMPORTANT: Firebase Admin SDK cannot verify passwords directly.
-      // This endpoint expects the frontend to:
-      // 1. Use Firebase Auth SDK to sign in with email/password
-      // 2. Get the ID token from Firebase Auth
-      // 3. Send the ID token to this endpoint for verification
-      // 
-      // Alternative: Use Firebase Auth REST API to verify credentials
-      // For now, we'll get the user and create tokens assuming password is verified by frontend
+      // Use Firebase Auth REST API to verify credentials
+      const FIREBASE_WEB_API_KEY = process.env.FIREBASE_WEB_API_KEY?.trim();
       
-      // Get user by email from Firebase Auth
-      const userRecord = await auth.getUserByEmail(email);
+      if (!FIREBASE_WEB_API_KEY || FIREBASE_WEB_API_KEY === '') {
+        logger.error('FIREBASE_WEB_API_KEY is not configured', {
+          exists: !!process.env.FIREBASE_WEB_API_KEY,
+          value: process.env.FIREBASE_WEB_API_KEY ? '***' : undefined,
+          envKeys: Object.keys(process.env).filter(k => k.includes('FIREBASE')).join(', '),
+        });
+        throw new ApiErrorResponse('SERVER_ERROR', 'Authentication service not configured. Please check FIREBASE_WEB_API_KEY in backend/.env', 500);
+      }
+
+      // Verify password using Firebase Auth REST API
+      const authResponse = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_WEB_API_KEY}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            email,
+            password,
+            returnSecureToken: true,
+          }),
+        }
+      );
+
+      const authData = await authResponse.json() as {
+        localId?: string;
+        email?: string;
+        error?: {
+          message?: string;
+          code?: number;
+        };
+      };
+
+      if (!authResponse.ok) {
+        logger.error('Firebase Auth login failed:', authData);
+        // Map Firebase Auth errors to our error format
+        if (authData.error?.message?.includes('EMAIL_NOT_FOUND') || 
+            authData.error?.message?.includes('INVALID_PASSWORD') ||
+            authData.error?.message?.includes('INVALID_LOGIN_CREDENTIALS')) {
+          throw new ApiErrorResponse('AUTH_INVALID_CREDENTIALS', 'Invalid email or password', 401);
+        }
+        if (authData.error?.message?.includes('USER_DISABLED')) {
+          throw new ApiErrorResponse('AUTH_ACCOUNT_INACTIVE', 'Account is disabled', 403);
+        }
+        throw new ApiErrorResponse('AUTH_INVALID_CREDENTIALS', 'Invalid email or password', 401);
+      }
+
+      if (!authData.localId) {
+        throw new ApiErrorResponse('AUTH_INVALID_CREDENTIALS', 'Invalid email or password', 401);
+      }
+
+      const uid = authData.localId;
       
       // Get user profile from Firestore
-      const userDoc = await db.collection('users').doc(userRecord.uid).get();
+      const userDoc = await db.collection('users').doc(uid).get();
       
       if (!userDoc.exists) {
         throw new ApiErrorResponse('AUTH_USER_NOT_FOUND', 'User profile not found', 404);
@@ -54,20 +99,28 @@ export class AuthService {
       }
 
       // Generate JWT tokens
+      const signOptions: SignOptions = {
+        expiresIn: JWT_EXPIRES_IN as any,
+      };
+      
       const token = jwt.sign(
-        { uid: userRecord.uid, email: userRecord.email, role: userData.role },
+        { uid, email: authData.email || userData.email, role: userData.role },
         JWT_SECRET,
-        { expiresIn: JWT_EXPIRES_IN }
+        signOptions
       );
 
+      const refreshSignOptions: SignOptions = {
+        expiresIn: JWT_REFRESH_EXPIRES_IN as any,
+      };
+
       const refreshToken = jwt.sign(
-        { uid: userRecord.uid, type: 'refresh' },
+        { uid, type: 'refresh' },
         JWT_SECRET,
-        { expiresIn: JWT_REFRESH_EXPIRES_IN }
+        refreshSignOptions
       );
 
       // Update last login
-      await db.collection('users').doc(userRecord.uid).update({
+      await db.collection('users').doc(uid).update({
         lastLogin: Timestamp.now(),
         updatedAt: Timestamp.now(),
       });
@@ -90,8 +143,8 @@ export class AuthService {
 
       return {
         user: {
-          id: userRecord.uid,
-          email: userRecord.email || userData.email,
+          id: uid,
+          email: authData.email || userData.email,
           name: userData.displayName,
           role: userData.role,
           phone: userData.phone,
@@ -127,11 +180,15 @@ export class AuthService {
 
       const userData = userDoc.data() as User;
 
-      // Generate new access token
+      // Generate new access token  
+      const signOptions: SignOptions = {
+        expiresIn: JWT_EXPIRES_IN as any,
+      };
+      
       const token = jwt.sign(
         { uid: decoded.uid, email: userData.email, role: userData.role },
         JWT_SECRET,
-        { expiresIn: JWT_EXPIRES_IN }
+        signOptions
       );
 
       return { token };
@@ -192,7 +249,7 @@ export class AuthService {
     }
   }
 
-  async resetPassword(token: string, newPassword: string): Promise<void> {
+  async resetPassword(_token: string, _newPassword: string): Promise<void> {
     try {
       // Verify token and reset password
       // This would typically involve verifying a reset token from email
@@ -205,7 +262,7 @@ export class AuthService {
     }
   }
 
-  async changePassword(uid: string, currentPassword: string, newPassword: string): Promise<void> {
+  async changePassword(uid: string, _currentPassword: string, newPassword: string): Promise<void> {
     try {
       // Update password in Firebase Auth
       await auth.updateUser(uid, { password: newPassword });
@@ -220,6 +277,46 @@ export class AuthService {
     // Revoke refresh tokens if stored
     // Firebase doesn't have built-in token revocation, so we might store tokens in Firestore
     logger.info(`User ${uid} logged out`);
+  }
+
+  async updateProfile(uid: string, data: {
+    displayName?: string;
+    phone?: string;
+    photoURL?: string;
+  }): Promise<any> {
+    try {
+      // Update user document in Firestore
+      const updateData: any = {
+        updatedAt: Timestamp.now(),
+      };
+
+      if (data.displayName !== undefined) {
+        updateData.displayName = data.displayName;
+        // Also update Firebase Auth display name
+        await auth.updateUser(uid, { displayName: data.displayName });
+      }
+
+      if (data.phone !== undefined) {
+        updateData.phone = data.phone;
+      }
+
+      if (data.photoURL !== undefined) {
+        updateData.photoURL = data.photoURL;
+        // Also update Firebase Auth photo URL
+        await auth.updateUser(uid, { photoURL: data.photoURL });
+      }
+
+      await db.collection('users').doc(uid).update(updateData);
+
+      // Get updated user data
+      return await this.getCurrentUser(uid);
+    } catch (error: any) {
+      logger.error('Update profile error:', error);
+      if (error instanceof ApiErrorResponse) {
+        throw error;
+      }
+      throw new ApiErrorResponse('PROFILE_UPDATE_FAILED', 'Failed to update profile', 400);
+    }
   }
 }
 

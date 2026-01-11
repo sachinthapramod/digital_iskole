@@ -6,7 +6,7 @@ export function errorHandler(
   err: Error | ApiErrorResponse,
   req: Request,
   res: Response,
-  next: NextFunction
+  _next: NextFunction
 ): void {
   logger.error('Error:', {
     error: err.message,

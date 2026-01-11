@@ -7,7 +7,7 @@ export interface GradingScale {
   description?: string;
 }
 
-export function calculateGrade(marks: number, totalMarks: number, gradingScale: GradingScale[] = DEFAULT_GRADING_SCALE): string {
+export function calculateGrade(marks: number, totalMarks: number, gradingScale: readonly GradingScale[] = DEFAULT_GRADING_SCALE): string {
   const percentage = (marks / totalMarks) * 100;
   
   for (const scale of gradingScale) {

@@ -6,35 +6,35 @@ const router = Router();
 
 router.use(authenticateToken);
 
-router.get('/', requireAdminOrTeacher, (req, res) => {
+router.get('/', requireAdminOrTeacher, (_req, res) => {
   res.json({ message: 'Get attendance - to be implemented' });
 });
 
-router.post('/mark', requireTeacher, (req, res) => {
+router.post('/mark', requireTeacher, (_req, res) => {
   res.json({ message: 'Mark attendance - to be implemented' });
 });
 
-router.put('/:studentId', requireTeacher, (req, res) => {
+router.put('/:studentId', requireTeacher, (_req, res) => {
   res.json({ message: 'Update attendance - to be implemented' });
 });
 
-router.get('/student/:id', authenticateToken, (req, res) => {
+router.get('/student/:id', authenticateToken, (_req, res) => {
   res.json({ message: 'Student attendance - to be implemented' });
 });
 
-router.get('/student/:id/stats', authenticateToken, (req, res) => {
+router.get('/student/:id/stats', authenticateToken, (_req, res) => {
   res.json({ message: 'Student attendance stats - to be implemented' });
 });
 
-router.get('/class/:id/summary', requireAdminOrTeacher, (req, res) => {
+router.get('/class/:id/summary', requireAdminOrTeacher, (_req, res) => {
   res.json({ message: 'Class attendance summary - to be implemented' });
 });
 
-router.get('/reports/daily', requireAdmin, (req, res) => {
+router.get('/reports/daily', requireAdmin, (_req, res) => {
   res.json({ message: 'Daily attendance report - to be implemented' });
 });
 
-router.get('/reports/monthly', requireAdminOrTeacher, (req, res) => {
+router.get('/reports/monthly', requireAdminOrTeacher, (_req, res) => {
   res.json({ message: 'Monthly attendance report - to be implemented' });
 });
 

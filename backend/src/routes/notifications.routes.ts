@@ -5,39 +5,39 @@ const router = Router();
 
 router.use(authenticateToken);
 
-router.get('/', (req, res) => {
+router.get('/', (_req, res) => {
   res.json({ message: 'Notifications list - to be implemented' });
 });
 
-router.get('/unread/count', (req, res) => {
+router.get('/unread/count', (_req, res) => {
   res.json({ message: 'Unread count - to be implemented' });
 });
 
-router.patch('/:id/read', (req, res) => {
+router.patch('/:id/read', (_req, res) => {
   res.json({ message: 'Mark as read - to be implemented' });
 });
 
-router.patch('/read-all', (req, res) => {
+router.patch('/read-all', (_req, res) => {
   res.json({ message: 'Mark all as read - to be implemented' });
 });
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', (_req, res) => {
   res.json({ message: 'Delete notification - to be implemented' });
 });
 
-router.delete('/all', (req, res) => {
+router.delete('/all', (_req, res) => {
   res.json({ message: 'Delete all notifications - to be implemented' });
 });
 
-router.get('/recent', (req, res) => {
+router.get('/recent', (_req, res) => {
   res.json({ message: 'Recent notifications - to be implemented' });
 });
 
-router.post('/subscribe', (req, res) => {
+router.post('/subscribe', (_req, res) => {
   res.json({ message: 'Subscribe to push - to be implemented' });
 });
 
-router.post('/unsubscribe', (req, res) => {
+router.post('/unsubscribe', (_req, res) => {
   res.json({ message: 'Unsubscribe from push - to be implemented' });
 });
 

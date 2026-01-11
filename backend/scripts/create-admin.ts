@@ -1,20 +1,58 @@
 import * as admin from 'firebase-admin';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import dotenv from 'dotenv';
+import * as path from 'path';
 
-dotenv.config();
+// Load environment variables from backend/.env
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
+// Validate environment variables before initializing Firebase
+const requiredEnvVars = {
+  FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID,
+  FIREBASE_CLIENT_EMAIL: process.env.FIREBASE_CLIENT_EMAIL,
+  FIREBASE_PRIVATE_KEY: process.env.FIREBASE_PRIVATE_KEY,
+};
+
+const missingVars = Object.entries(requiredEnvVars)
+  .filter(([_, value]) => !value)
+  .map(([key]) => key);
+
+if (missingVars.length > 0) {
+  console.error('❌ Error: Missing required environment variables:');
+  missingVars.forEach((varName) => {
+    console.error(`   - ${varName}`);
+  });
+  console.error('\n📝 Please create a .env file in the backend/ directory with the following variables:');
+  console.error('   FIREBASE_PROJECT_ID=your-project-id');
+  console.error('   FIREBASE_CLIENT_EMAIL=firebase-adminsdk@your-project.iam.gserviceaccount.com');
+  console.error('   FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n"');
+  console.error('\nSee SETUP-AND-DEPLOYMENT.md for detailed instructions.');
+  process.exit(1);
+}
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
   const serviceAccount = {
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    projectId: process.env.FIREBASE_PROJECT_ID!,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL!,
+    privateKey: process.env.FIREBASE_PRIVATE_KEY!.replace(/\\n/g, '\n'),
   };
 
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount as admin.ServiceAccount),
-  });
+  try {
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount as admin.ServiceAccount),
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || `${process.env.FIREBASE_PROJECT_ID}.appspot.com`,
+    });
+    console.log('✅ Firebase Admin SDK initialized successfully');
+  } catch (error: any) {
+    console.error('❌ Error initializing Firebase Admin SDK:');
+    console.error(`   ${error.message}`);
+    console.error('\n💡 Tips:');
+    console.error('   1. Check that your .env file is in the backend/ directory');
+    console.error('   2. Verify FIREBASE_PRIVATE_KEY includes the full key with \\n newlines');
+    console.error('   3. Ensure FIREBASE_PROJECT_ID matches your Firebase project');
+    process.exit(1);
+  }
 }
 
 const auth = admin.auth();

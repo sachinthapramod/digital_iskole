@@ -9,6 +9,7 @@ import {
   forgotPasswordValidator,
   resetPasswordValidator,
   changePasswordValidator,
+  updateProfileValidator,
 } from '../validators/auth.validator';
 
 const router = Router();
@@ -22,6 +23,7 @@ router.post('/reset-password', authRateLimiter, validate(resetPasswordValidator)
 // Protected routes
 router.post('/logout', authenticateToken, authController.logout.bind(authController));
 router.get('/me', authenticateToken, authController.getCurrentUser.bind(authController));
+router.put('/profile', authenticateToken, validate(updateProfileValidator), authController.updateProfile.bind(authController));
 router.post('/change-password', authenticateToken, validate(changePasswordValidator), authController.changePassword.bind(authController));
 
 export default router;
