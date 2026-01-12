@@ -1,12 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Dialog,
   DialogContent,
@@ -17,7 +18,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { useLanguage } from "@/lib/i18n/context"
-import { Plus, Search, Edit, Trash2, GraduationCap } from "lucide-react"
+import { Plus, Search, Edit, Trash2, GraduationCap, Loader2, AlertCircle } from "lucide-react"
 
 interface Student {
   id: string
@@ -28,52 +29,59 @@ interface Student {
   status: string
 }
 
-const initialStudents: Student[] = [
-  {
-    id: "1",
-    name: "Kasun Perera",
-    rollNo: "10A001",
-    class: "Grade 10-A",
-    parent: "Mr. Nimal Perera",
-    status: "active",
-  },
-  {
-    id: "2",
-    name: "Nimali Silva",
-    rollNo: "10A002",
-    class: "Grade 10-A",
-    parent: "Mrs. Kamala Silva",
-    status: "active",
-  },
-  {
-    id: "3",
-    name: "Amal Fernando",
-    rollNo: "10A003",
-    class: "Grade 10-A",
-    parent: "Mr. Sunil Fernando",
-    status: "active",
-  },
-  {
-    id: "4",
-    name: "Sithara Jayawardena",
-    rollNo: "9A001",
-    class: "Grade 9-A",
-    parent: "Mrs. Malini Jayawardena",
-    status: "active",
-  },
-  { id: "5", name: "Dinesh Kumar", rollNo: "9A002", class: "Grade 9-A", parent: "Mr. Ravi Kumar", status: "inactive" },
-  { id: "6", name: "Priya Mendis", rollNo: "8B001", class: "Grade 8-B", parent: "Mrs. Sita Mendis", status: "active" },
-]
-
 export default function StudentsPage() {
   const { t } = useLanguage()
   const [searchQuery, setSearchQuery] = useState("")
   const [filterClass, setFilterClass] = useState("all")
-  const [students, setStudents] = useState<Student[]>(initialStudents)
+  const [students, setStudents] = useState<Student[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editingStudent, setEditingStudent] = useState<Student | null>(null)
   const [newStudent, setNewStudent] = useState({ name: "", class: "", parent: "" })
+
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
+
+  // Fetch students on mount
+  useEffect(() => {
+    fetchStudents()
+  }, [])
+
+  const fetchStudents = async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+      const token = localStorage.getItem("digital-iskole-token")
+      
+      if (!token) {
+        setError("Not authenticated. Please login again.")
+        setIsLoading(false)
+        return
+      }
+
+      const response = await fetch(`${API_URL}/users/students`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to fetch students')
+      }
+
+      setStudents(data.data?.students || [])
+    } catch (err: any) {
+      console.error('Fetch students error:', err)
+      setError(err.message || 'Failed to load students')
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const filteredStudents = students.filter((student) => {
     const matchesSearch =
@@ -83,12 +91,51 @@ export default function StudentsPage() {
     return matchesSearch && matchesClass
   })
 
-  const handleAddStudent = () => {
-    const classPrefix = newStudent.class.replace("Grade ", "").replace("-", "")
-    const newRollNo = `${classPrefix}${String(students.length + 1).padStart(3, "0")}`
-    setStudents([...students, { ...newStudent, id: String(students.length + 1), rollNo: newRollNo, status: "active" }])
-    setDialogOpen(false)
-    setNewStudent({ name: "", class: "", parent: "" })
+  const handleAddStudent = async () => {
+    if (!newStudent.name || !newStudent.class || !newStudent.parent) {
+      setError("Please fill in all required fields")
+      return
+    }
+
+    try {
+      setIsSaving(true)
+      setError(null)
+      const token = localStorage.getItem("digital-iskole-token")
+      
+      if (!token) {
+        setError("Not authenticated. Please login again.")
+        setIsSaving(false)
+        return
+      }
+
+      const response = await fetch(`${API_URL}/users/students`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: newStudent.name,
+          class: newStudent.class,
+          parent: newStudent.parent,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to create student')
+      }
+
+      setDialogOpen(false)
+      setNewStudent({ name: "", class: "", parent: "" })
+      await fetchStudents() // Refresh list
+    } catch (err: any) {
+      console.error('Add student error:', err)
+      setError(err.message || 'Failed to create student')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleEditStudent = (student: Student) => {
@@ -96,17 +143,86 @@ export default function StudentsPage() {
     setEditDialogOpen(true)
   }
 
-  const handleSaveEdit = () => {
-    if (editingStudent) {
-      setStudents(students.map((s) => (s.id === editingStudent.id ? editingStudent : s)))
+  const handleSaveEdit = async () => {
+    if (!editingStudent) return
+
+    try {
+      setIsSaving(true)
+      setError(null)
+      const token = localStorage.getItem("digital-iskole-token")
+      
+      if (!token) {
+        setError("Not authenticated. Please login again.")
+        setIsSaving(false)
+        return
+      }
+
+      const response = await fetch(`${API_URL}/users/students/${editingStudent.id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: editingStudent.name,
+          class: editingStudent.class,
+          parent: editingStudent.parent,
+          status: editingStudent.status,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to update student')
+      }
+
       setEditDialogOpen(false)
       setEditingStudent(null)
+      await fetchStudents() // Refresh list
+    } catch (err: any) {
+      console.error('Update student error:', err)
+      setError(err.message || 'Failed to update student')
+    } finally {
+      setIsSaving(false)
     }
   }
 
-  const handleDeleteStudent = (id: string) => {
-    if (confirm("Are you sure you want to delete this student?")) {
-      setStudents(students.filter((s) => s.id !== id))
+  const handleDeleteStudent = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this student? This action cannot be undone.")) {
+      return
+    }
+
+    try {
+      setIsDeleting(id)
+      setError(null)
+      const token = localStorage.getItem("digital-iskole-token")
+      
+      if (!token) {
+        setError("Not authenticated. Please login again.")
+        setIsDeleting(null)
+        return
+      }
+
+      const response = await fetch(`${API_URL}/users/students/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to delete student')
+      }
+
+      await fetchStudents() // Refresh list
+    } catch (err: any) {
+      console.error('Delete student error:', err)
+      setError(err.message || 'Failed to delete student')
+    } finally {
+      setIsDeleting(null)
     }
   }
 
@@ -118,6 +234,13 @@ export default function StudentsPage() {
           <h1 className="text-2xl font-bold text-foreground">{t("students")}</h1>
           <p className="text-muted-foreground">Manage student records and enrollments</p>
         </div>
+        
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button>
@@ -174,10 +297,19 @@ export default function StudentsPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={isSaving}>
                 {t("cancel")}
               </Button>
-              <Button onClick={handleAddStudent}>{t("add")}</Button>
+              <Button onClick={handleAddStudent} disabled={isSaving}>
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  t("add")
+                )}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -219,20 +351,32 @@ export default function StudentsPage() {
           <CardDescription>{filteredStudents.length} students found</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Roll No</th>
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Name</th>
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("className")}</th>
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Parent/Guardian</th>
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("status")}</th>
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("actions")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredStudents.map((student) => (
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Roll No</th>
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Name</th>
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("className")}</th>
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Parent/Guardian</th>
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("status")}</th>
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("actions")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredStudents.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-center py-8 text-muted-foreground">
+                        No students found
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredStudents.map((student) => (
                   <tr key={student.id} className="border-b border-border last:border-0">
                     <td className="py-3 px-2 text-sm text-muted-foreground">{student.rollNo}</td>
                     <td className="py-3 px-2">
@@ -255,7 +399,7 @@ export default function StudentsPage() {
                     </td>
                     <td className="py-3 px-2">
                       <div className="flex gap-2">
-                        <Button size="sm" variant="ghost" onClick={() => handleEditStudent(student)}>
+                        <Button size="sm" variant="ghost" onClick={() => handleEditStudent(student)} disabled={isDeleting === student.id}>
                           <Edit className="h-4 w-4" />
                         </Button>
                         <Button
@@ -263,16 +407,23 @@ export default function StudentsPage() {
                           variant="ghost"
                           className="text-destructive"
                           onClick={() => handleDeleteStudent(student.id)}
+                          disabled={isDeleting === student.id}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          {isDeleting === student.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
                         </Button>
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -340,10 +491,19 @@ export default function StudentsPage() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)} disabled={isSaving}>
               {t("cancel")}
             </Button>
-            <Button onClick={handleSaveEdit}>{t("save")}</Button>
+            <Button onClick={handleSaveEdit} disabled={isSaving}>
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                t("save")
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

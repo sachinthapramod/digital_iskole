@@ -1,11 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
@@ -17,7 +18,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { useLanguage } from "@/lib/i18n/context"
-import { Plus, Search, Edit, Trash2, Mail, Phone, Users } from "lucide-react"
+import { Plus, Search, Edit, Trash2, Mail, Phone, Users, Loader2, AlertCircle } from "lucide-react"
 
 interface Parent {
   id: string
@@ -28,49 +29,58 @@ interface Parent {
   status: string
 }
 
-const initialParents: Parent[] = [
-  {
-    id: "1",
-    name: "Mr. Nimal Perera",
-    email: "nimal.perera@gmail.com",
-    phone: "+94 71 234 5678",
-    children: ["Kasun Perera (10-A)"],
-    status: "active",
-  },
-  {
-    id: "2",
-    name: "Mrs. Kamala Silva",
-    email: "kamala.silva@gmail.com",
-    phone: "+94 77 345 6789",
-    children: ["Nimali Silva (10-A)", "Amal Silva (8-B)"],
-    status: "active",
-  },
-  {
-    id: "3",
-    name: "Mr. Sunil Fernando",
-    email: "sunil.fernando@gmail.com",
-    phone: "+94 76 456 7890",
-    children: ["Amal Fernando (10-A)"],
-    status: "active",
-  },
-  {
-    id: "4",
-    name: "Mrs. Malini Jayawardena",
-    email: "malini.j@gmail.com",
-    phone: "+94 78 567 8901",
-    children: ["Sithara Jayawardena (9-A)"],
-    status: "inactive",
-  },
-]
-
 export default function ParentsPage() {
   const { t } = useLanguage()
   const [searchQuery, setSearchQuery] = useState("")
-  const [parents, setParents] = useState<Parent[]>(initialParents)
+  const [parents, setParents] = useState<Parent[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editingParent, setEditingParent] = useState<Parent | null>(null)
   const [newParent, setNewParent] = useState({ name: "", email: "", phone: "", password: "" })
+
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
+
+  // Fetch parents on mount
+  useEffect(() => {
+    fetchParents()
+  }, [])
+
+  const fetchParents = async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+      const token = localStorage.getItem("digital-iskole-token")
+      
+      if (!token) {
+        setError("Not authenticated. Please login again.")
+        setIsLoading(false)
+        return
+      }
+
+      const response = await fetch(`${API_URL}/users/parents`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to fetch parents')
+      }
+
+      setParents(data.data?.parents || [])
+    } catch (err: any) {
+      console.error('Fetch parents error:', err)
+      setError(err.message || 'Failed to load parents')
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const filteredParents = parents.filter(
     (parent) =>
@@ -78,10 +88,52 @@ export default function ParentsPage() {
       parent.email.toLowerCase().includes(searchQuery.toLowerCase()),
   )
 
-  const handleAddParent = () => {
-    setParents([...parents, { ...newParent, id: String(parents.length + 1), children: [], status: "active" }])
-    setDialogOpen(false)
-    setNewParent({ name: "", email: "", phone: "", password: "" })
+  const handleAddParent = async () => {
+    if (!newParent.name || !newParent.email || !newParent.phone || !newParent.password) {
+      setError("Please fill in all required fields")
+      return
+    }
+
+    try {
+      setIsSaving(true)
+      setError(null)
+      const token = localStorage.getItem("digital-iskole-token")
+      
+      if (!token) {
+        setError("Not authenticated. Please login again.")
+        setIsSaving(false)
+        return
+      }
+
+      const response = await fetch(`${API_URL}/users/parents`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: newParent.name,
+          email: newParent.email,
+          phone: newParent.phone,
+          password: newParent.password,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to create parent')
+      }
+
+      setDialogOpen(false)
+      setNewParent({ name: "", email: "", phone: "", password: "" })
+      await fetchParents() // Refresh list
+    } catch (err: any) {
+      console.error('Add parent error:', err)
+      setError(err.message || 'Failed to create parent')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleEditParent = (parent: Parent) => {
@@ -89,17 +141,86 @@ export default function ParentsPage() {
     setEditDialogOpen(true)
   }
 
-  const handleSaveEdit = () => {
-    if (editingParent) {
-      setParents(parents.map((p) => (p.id === editingParent.id ? editingParent : p)))
+  const handleSaveEdit = async () => {
+    if (!editingParent) return
+
+    try {
+      setIsSaving(true)
+      setError(null)
+      const token = localStorage.getItem("digital-iskole-token")
+      
+      if (!token) {
+        setError("Not authenticated. Please login again.")
+        setIsSaving(false)
+        return
+      }
+
+      const response = await fetch(`${API_URL}/users/parents/${editingParent.id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: editingParent.name,
+          email: editingParent.email,
+          phone: editingParent.phone,
+          status: editingParent.status,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to update parent')
+      }
+
       setEditDialogOpen(false)
       setEditingParent(null)
+      await fetchParents() // Refresh list
+    } catch (err: any) {
+      console.error('Update parent error:', err)
+      setError(err.message || 'Failed to update parent')
+    } finally {
+      setIsSaving(false)
     }
   }
 
-  const handleDeleteParent = (id: string) => {
-    if (confirm("Are you sure you want to delete this parent?")) {
-      setParents(parents.filter((p) => p.id !== id))
+  const handleDeleteParent = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this parent? This action cannot be undone.")) {
+      return
+    }
+
+    try {
+      setIsDeleting(id)
+      setError(null)
+      const token = localStorage.getItem("digital-iskole-token")
+      
+      if (!token) {
+        setError("Not authenticated. Please login again.")
+        setIsDeleting(null)
+        return
+      }
+
+      const response = await fetch(`${API_URL}/users/parents/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to delete parent')
+      }
+
+      await fetchParents() // Refresh list
+    } catch (err: any) {
+      console.error('Delete parent error:', err)
+      setError(err.message || 'Failed to delete parent')
+    } finally {
+      setIsDeleting(null)
     }
   }
 
@@ -111,6 +232,13 @@ export default function ParentsPage() {
           <h1 className="text-2xl font-bold text-foreground">{t("parents")}</h1>
           <p className="text-muted-foreground">Manage parent accounts and associations</p>
         </div>
+        
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button>
@@ -160,10 +288,19 @@ export default function ParentsPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={isSaving}>
                 {t("cancel")}
               </Button>
-              <Button onClick={handleAddParent}>{t("add")}</Button>
+              <Button onClick={handleAddParent} disabled={isSaving}>
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  t("add")
+                )}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -191,19 +328,31 @@ export default function ParentsPage() {
           <CardDescription>{filteredParents.length} parents found</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("userName")}</th>
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Contact</th>
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Children</th>
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("status")}</th>
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("actions")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredParents.map((parent) => (
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("userName")}</th>
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Contact</th>
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Children</th>
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("status")}</th>
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("actions")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredParents.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="text-center py-8 text-muted-foreground">
+                        No parents found
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredParents.map((parent) => (
                   <tr key={parent.id} className="border-b border-border last:border-0">
                     <td className="py-3 px-2">
                       <div className="flex items-center gap-3">
@@ -255,7 +404,7 @@ export default function ParentsPage() {
                     </td>
                     <td className="py-3 px-2">
                       <div className="flex gap-2">
-                        <Button size="sm" variant="ghost" onClick={() => handleEditParent(parent)}>
+                        <Button size="sm" variant="ghost" onClick={() => handleEditParent(parent)} disabled={isDeleting === parent.id}>
                           <Edit className="h-4 w-4" />
                         </Button>
                         <Button
@@ -263,16 +412,23 @@ export default function ParentsPage() {
                           variant="ghost"
                           className="text-destructive"
                           onClick={() => handleDeleteParent(parent.id)}
+                          disabled={isDeleting === parent.id}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          {isDeleting === parent.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
                         </Button>
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -324,10 +480,19 @@ export default function ParentsPage() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)} disabled={isSaving}>
               {t("cancel")}
             </Button>
-            <Button onClick={handleSaveEdit}>{t("save")}</Button>
+            <Button onClick={handleSaveEdit} disabled={isSaving}>
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                t("save")
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

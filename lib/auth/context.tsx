@@ -12,6 +12,7 @@ export interface User {
   avatar?: string
   phone?: string
   profilePicture?: string
+  dateOfBirth?: string // ISO date string (YYYY-MM-DD)
   assignedClass?: string // For teachers
   children?: string[] // For parents - array of student IDs
 }

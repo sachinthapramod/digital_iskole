@@ -9,6 +9,7 @@ export interface User {
   displayName: string;
   photoURL?: string;
   phone?: string;
+  dateOfBirth?: Timestamp;
   language: 'en' | 'si' | 'ta';
   theme: 'light' | 'dark';
   fcmTokens: string[];

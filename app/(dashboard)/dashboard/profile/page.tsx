@@ -37,7 +37,7 @@ export default function ProfilePage() {
         firstName: nameParts[0] || "",
         lastName: nameParts.slice(1).join(" ") || "",
         phone: user.phone || "",
-        dateOfBirth: "",
+        dateOfBirth: user.dateOfBirth || "",
         address: "",
       })
     }
@@ -68,6 +68,7 @@ export default function ProfilePage() {
         body: JSON.stringify({
           displayName: displayName || undefined,
           phone: profileData.phone || undefined,
+          dateOfBirth: profileData.dateOfBirth || undefined,
         }),
       })
 
@@ -93,7 +94,7 @@ export default function ProfilePage() {
           firstName: nameParts[0] || "",
           lastName: nameParts.slice(1).join(" ") || "",
           phone: updatedUser.phone || profileData.phone,
-          dateOfBirth: profileData.dateOfBirth,
+          dateOfBirth: updatedUser.dateOfBirth || profileData.dateOfBirth,
           address: profileData.address,
         })
       }

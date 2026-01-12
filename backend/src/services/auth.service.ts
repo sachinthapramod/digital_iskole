@@ -1,5 +1,5 @@
 import { auth, db } from '../config/firebase';
-import { Timestamp } from 'firebase-admin/firestore';
+import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { User } from '../types';
 import { ApiErrorResponse } from '../utils/response';
 import logger from '../utils/logger';
@@ -141,6 +141,14 @@ export class AuthService {
         }
       }
 
+      // Convert Firestore Timestamp to ISO date string for dateOfBirth
+      let dateOfBirth: string | undefined;
+      if (userData.dateOfBirth) {
+        const date = userData.dateOfBirth.toDate();
+        // Format as YYYY-MM-DD for HTML date input
+        dateOfBirth = date.toISOString().split('T')[0];
+      }
+
       return {
         user: {
           id: uid,
@@ -149,6 +157,7 @@ export class AuthService {
           role: userData.role,
           phone: userData.phone,
           profilePicture: userData.photoURL,
+          dateOfBirth,
           ...profileData,
         },
         token,
@@ -226,6 +235,14 @@ export class AuthService {
       }
     }
 
+    // Convert Firestore Timestamp to ISO date string for dateOfBirth
+    let dateOfBirth: string | undefined;
+    if (userData.dateOfBirth) {
+      const date = userData.dateOfBirth.toDate();
+      // Format as YYYY-MM-DD for HTML date input
+      dateOfBirth = date.toISOString().split('T')[0];
+    }
+
     return {
       id: uid,
       email: userData.email,
@@ -233,6 +250,7 @@ export class AuthService {
       role: userData.role,
       phone: userData.phone,
       profilePicture: userData.photoURL,
+      dateOfBirth,
       ...profileData,
     };
   }
@@ -283,6 +301,7 @@ export class AuthService {
     displayName?: string;
     phone?: string;
     photoURL?: string;
+    dateOfBirth?: string;
   }): Promise<any> {
     try {
       // Update user document in Firestore
@@ -304,6 +323,16 @@ export class AuthService {
         updateData.photoURL = data.photoURL;
         // Also update Firebase Auth photo URL
         await auth.updateUser(uid, { photoURL: data.photoURL });
+      }
+
+      if (data.dateOfBirth !== undefined) {
+        // Convert ISO date string to Firestore Timestamp
+        if (data.dateOfBirth && data.dateOfBirth.trim() !== '') {
+          updateData.dateOfBirth = Timestamp.fromDate(new Date(data.dateOfBirth));
+        } else {
+          // If empty string, delete the field
+          updateData.dateOfBirth = FieldValue.delete();
+        }
       }
 
       await db.collection('users').doc(uid).update(updateData);

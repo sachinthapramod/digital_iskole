@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticateToken } from '../middleware/auth.middleware';
 import { requireAdmin, requireAdminOrTeacher } from '../middleware/role.middleware';
+import usersController from '../controllers/users.controller';
 
 const router = Router();
 
@@ -8,26 +9,13 @@ const router = Router();
 router.use(authenticateToken);
 
 // Teachers routes
-router.get('/teachers', requireAdmin, (_req, res) => {
-  res.json({ message: 'Teachers list - to be implemented' });
-});
+router.get('/teachers', requireAdmin, usersController.getTeachers.bind(usersController));
+router.post('/teachers', requireAdmin, usersController.createTeacher.bind(usersController));
+router.get('/teachers/:id', requireAdmin, usersController.getTeacher.bind(usersController));
+router.put('/teachers/:id', requireAdmin, usersController.updateTeacher.bind(usersController));
+router.delete('/teachers/:id', requireAdmin, usersController.deleteTeacher.bind(usersController));
 
-router.post('/teachers', requireAdmin, (_req, res) => {
-  res.json({ message: 'Create teacher - to be implemented' });
-});
-
-router.get('/teachers/:id', requireAdmin, (_req, res) => {
-  res.json({ message: 'Get teacher - to be implemented' });
-});
-
-router.put('/teachers/:id', requireAdmin, (_req, res) => {
-  res.json({ message: 'Update teacher - to be implemented' });
-});
-
-router.delete('/teachers/:id', requireAdmin, (_req, res) => {
-  res.json({ message: 'Delete teacher - to be implemented' });
-});
-
+// Keep placeholder routes for future implementation
 router.get('/teachers/available', requireAdmin, (_req, res) => {
   res.json({ message: 'Available teachers - to be implemented' });
 });
@@ -37,26 +25,13 @@ router.get('/teachers/:id/students', requireAdminOrTeacher, (_req, res) => {
 });
 
 // Students routes
-router.get('/students', requireAdmin, (_req, res) => {
-  res.json({ message: 'Students list - to be implemented' });
-});
+router.get('/students', requireAdmin, usersController.getStudents.bind(usersController));
+router.post('/students', requireAdmin, usersController.createStudent.bind(usersController));
+router.get('/students/:id', authenticateToken, usersController.getStudent.bind(usersController));
+router.put('/students/:id', requireAdmin, usersController.updateStudent.bind(usersController));
+router.delete('/students/:id', requireAdmin, usersController.deleteStudent.bind(usersController));
 
-router.post('/students', requireAdmin, (_req, res) => {
-  res.json({ message: 'Create student - to be implemented' });
-});
-
-router.get('/students/:id', authenticateToken, (_req, res) => {
-  res.json({ message: 'Get student - to be implemented' });
-});
-
-router.put('/students/:id', requireAdmin, (_req, res) => {
-  res.json({ message: 'Update student - to be implemented' });
-});
-
-router.delete('/students/:id', requireAdmin, (_req, res) => {
-  res.json({ message: 'Delete student - to be implemented' });
-});
-
+// Keep placeholder routes for future implementation
 router.get('/students/class/:classId', requireAdminOrTeacher, (_req, res) => {
   res.json({ message: 'Students by class - to be implemented' });
 });
@@ -74,26 +49,13 @@ router.get('/students/:id/marks', authenticateToken, (_req, res) => {
 });
 
 // Parents routes
-router.get('/parents', requireAdmin, (_req, res) => {
-  res.json({ message: 'Parents list - to be implemented' });
-});
+router.get('/parents', requireAdmin, usersController.getParents.bind(usersController));
+router.post('/parents', requireAdmin, usersController.createParent.bind(usersController));
+router.get('/parents/:id', requireAdmin, usersController.getParent.bind(usersController));
+router.put('/parents/:id', requireAdmin, usersController.updateParent.bind(usersController));
+router.delete('/parents/:id', requireAdmin, usersController.deleteParent.bind(usersController));
 
-router.post('/parents', requireAdmin, (_req, res) => {
-  res.json({ message: 'Create parent - to be implemented' });
-});
-
-router.get('/parents/:id', requireAdmin, (_req, res) => {
-  res.json({ message: 'Get parent - to be implemented' });
-});
-
-router.put('/parents/:id', requireAdmin, (_req, res) => {
-  res.json({ message: 'Update parent - to be implemented' });
-});
-
-router.delete('/parents/:id', requireAdmin, (_req, res) => {
-  res.json({ message: 'Delete parent - to be implemented' });
-});
-
+// Keep placeholder routes for future implementation
 router.get('/parents/:id/children', authenticateToken, (_req, res) => {
   res.json({ message: 'Parent children - to be implemented' });
 });
