@@ -1,12 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Dialog,
   DialogContent,
@@ -17,7 +18,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { useLanguage } from "@/lib/i18n/context"
-import { Plus, Search, Edit, Trash2, Users, GraduationCap } from "lucide-react"
+import { Plus, Search, Edit, Trash2, Users, GraduationCap, Loader2, AlertCircle } from "lucide-react"
+import { apiRequest } from "@/lib/api/client"
 
 interface ClassInfo {
   id: string
@@ -27,73 +29,80 @@ interface ClassInfo {
   classTeacher: string
   students: number
   room: string
+  status?: string
 }
 
-const initialClasses: ClassInfo[] = [
-  {
-    id: "1",
-    name: "Grade 10-A",
-    grade: "10",
-    section: "A",
-    classTeacher: "Mrs. Kumari Perera",
-    students: 32,
-    room: "Room 101",
-  },
-  {
-    id: "2",
-    name: "Grade 10-B",
-    grade: "10",
-    section: "B",
-    classTeacher: "Mr. Nuwan Bandara",
-    students: 30,
-    room: "Room 102",
-  },
-  {
-    id: "3",
-    name: "Grade 9-A",
-    grade: "9",
-    section: "A",
-    classTeacher: "Mr. Amal Kumar",
-    students: 35,
-    room: "Room 201",
-  },
-  {
-    id: "4",
-    name: "Grade 9-B",
-    grade: "9",
-    section: "B",
-    classTeacher: "Mrs. Sithara Fernando",
-    students: 33,
-    room: "Room 202",
-  },
-  {
-    id: "5",
-    name: "Grade 8-A",
-    grade: "8",
-    section: "A",
-    classTeacher: "Mrs. Malini Rathnayake",
-    students: 34,
-    room: "Room 301",
-  },
-  {
-    id: "6",
-    name: "Grade 8-B",
-    grade: "8",
-    section: "B",
-    classTeacher: "Mr. Ravi Kumar",
-    students: 31,
-    room: "Room 302",
-  },
-]
+interface Teacher {
+  id: string
+  name: string
+  email: string
+  phone: string
+  status: string
+}
 
 export default function ClassesPage() {
   const { t } = useLanguage()
   const [searchQuery, setSearchQuery] = useState("")
-  const [classes, setClasses] = useState<ClassInfo[]>(initialClasses)
+  const [classes, setClasses] = useState<ClassInfo[]>([])
+  const [teachers, setTeachers] = useState<Teacher[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingTeachers, setIsLoadingTeachers] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editingClass, setEditingClass] = useState<ClassInfo | null>(null)
   const [newClass, setNewClass] = useState({ grade: "", section: "", classTeacher: "", room: "" })
+
+  // Fetch classes and teachers on mount
+  useEffect(() => {
+    fetchClasses()
+    fetchTeachers()
+  }, [])
+
+  const fetchClasses = async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      const response = await apiRequest('/academic/classes')
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to fetch classes')
+      }
+
+      setClasses(data.data?.classes || [])
+    } catch (err: any) {
+      console.error('Fetch classes error:', err)
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to load classes')
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const fetchTeachers = async () => {
+    try {
+      setIsLoadingTeachers(true)
+
+      const response = await apiRequest('/users/teachers')
+      const data = await response.json()
+
+      if (response.ok) {
+        setTeachers(data.data?.teachers || [])
+      }
+    } catch (err: any) {
+      console.error('Fetch teachers error:', err)
+      // Don't show error for teachers fetch failure, just log it
+    } finally {
+      setIsLoadingTeachers(false)
+    }
+  }
 
   const filteredClasses = classes.filter(
     (cls) =>
@@ -103,11 +112,45 @@ export default function ClassesPage() {
 
   const totalStudents = classes.reduce((acc, cls) => acc + cls.students, 0)
 
-  const handleAddClass = () => {
-    const name = `Grade ${newClass.grade}-${newClass.section}`
-    setClasses([...classes, { ...newClass, id: String(classes.length + 1), name, students: 0 }])
-    setDialogOpen(false)
-    setNewClass({ grade: "", section: "", classTeacher: "", room: "" })
+  const handleAddClass = async () => {
+    if (!newClass.grade || !newClass.section) {
+      setError("Please fill in all required fields")
+      return
+    }
+
+    try {
+      setIsSaving(true)
+      setError(null)
+
+      const response = await apiRequest('/academic/classes', {
+        method: 'POST',
+        body: JSON.stringify({
+          grade: newClass.grade,
+          section: newClass.section,
+          classTeacher: newClass.classTeacher || 'Not assigned',
+          room: newClass.room || undefined,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to create class')
+      }
+
+      setDialogOpen(false)
+      setNewClass({ grade: "", section: "", classTeacher: "", room: "" })
+      await fetchClasses() // Refresh list
+    } catch (err: any) {
+      console.error('Add class error:', err)
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to create class')
+      }
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleEditClass = (cls: ClassInfo) => {
@@ -115,21 +158,74 @@ export default function ClassesPage() {
     setEditDialogOpen(true)
   }
 
-  const handleSaveEdit = () => {
-    if (editingClass) {
-      const updatedClass = {
-        ...editingClass,
-        name: `Grade ${editingClass.grade}-${editingClass.section}`,
+  const handleSaveEdit = async () => {
+    if (!editingClass) return
+
+    try {
+      setIsSaving(true)
+      setError(null)
+
+      const response = await apiRequest(`/academic/classes/${editingClass.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          grade: editingClass.grade,
+          section: editingClass.section,
+          classTeacher: editingClass.classTeacher || 'Not assigned',
+          room: editingClass.room || undefined,
+          status: editingClass.status || 'active',
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to update class')
       }
-      setClasses(classes.map((c) => (c.id === editingClass.id ? updatedClass : c)))
+
       setEditDialogOpen(false)
       setEditingClass(null)
+      await fetchClasses() // Refresh list
+    } catch (err: any) {
+      console.error('Update class error:', err)
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to update class')
+      }
+    } finally {
+      setIsSaving(false)
     }
   }
 
-  const handleDeleteClass = (id: string) => {
-    if (confirm("Are you sure you want to delete this class?")) {
-      setClasses(classes.filter((c) => c.id !== id))
+  const handleDeleteClass = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this class? This action cannot be undone.")) {
+      return
+    }
+
+    try {
+      setIsDeleting(id)
+      setError(null)
+
+      const response = await apiRequest(`/academic/classes/${id}`, {
+        method: 'DELETE',
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to delete class')
+      }
+
+      await fetchClasses() // Refresh list
+    } catch (err: any) {
+      console.error('Delete class error:', err)
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to delete class')
+      }
+    } finally {
+      setIsDeleting(null)
     }
   }
 
@@ -141,6 +237,14 @@ export default function ClassesPage() {
           <h1 className="text-2xl font-bold text-foreground">{t("classes")}</h1>
           <p className="text-muted-foreground">Manage class sections and assignments</p>
         </div>
+        
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button>
@@ -193,12 +297,21 @@ export default function ClassesPage() {
                   onValueChange={(v) => setNewClass({ ...newClass, classTeacher: v })}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Assign class teacher" />
+                    <SelectValue placeholder={isLoadingTeachers ? "Loading teachers..." : "Assign class teacher"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Mrs. Kumari Perera">Mrs. Kumari Perera</SelectItem>
-                    <SelectItem value="Mr. Amal Kumar">Mr. Amal Kumar</SelectItem>
-                    <SelectItem value="Mrs. Sithara Fernando">Mrs. Sithara Fernando</SelectItem>
+                    <SelectItem value="Not assigned">Not assigned</SelectItem>
+                    {teachers.length === 0 ? (
+                      <SelectItem value="no-teachers" disabled>
+                        {isLoadingTeachers ? "Loading..." : "No teachers available"}
+                      </SelectItem>
+                    ) : (
+                      teachers.map((teacher) => (
+                        <SelectItem key={teacher.id} value={teacher.name}>
+                          {teacher.name} {teacher.email ? `(${teacher.email})` : ''}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -212,10 +325,19 @@ export default function ClassesPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={isSaving}>
                 {t("cancel")}
               </Button>
-              <Button onClick={handleAddClass}>{t("add")}</Button>
+              <Button onClick={handleAddClass} disabled={isSaving}>
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  t("add")
+                )}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -250,7 +372,9 @@ export default function ClassesPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Average Class Size</p>
-                <p className="text-2xl font-bold text-foreground">{Math.round(totalStudents / classes.length)}</p>
+                <p className="text-2xl font-bold text-foreground">
+                  {classes.length > 0 ? Math.round(totalStudents / classes.length) : 0}
+                </p>
               </div>
               <Users className="h-8 w-8 text-muted-foreground/50" />
             </div>
@@ -274,43 +398,65 @@ export default function ClassesPage() {
       </Card>
 
       {/* Classes Grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {filteredClasses.map((cls) => (
-          <Card key={cls.id} className="overflow-hidden">
-            <CardHeader className="bg-primary/5 pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">{cls.name}</CardTitle>
-                <div className="flex gap-1">
-                  <Button size="sm" variant="ghost" onClick={() => handleEditClass(cls)}>
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-destructive"
-                    onClick={() => handleDeleteClass(cls.id)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-              <CardDescription>{cls.room}</CardDescription>
-            </CardHeader>
-            <CardContent className="pt-4">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">{t("classTeacher")}</span>
-                  <span className="text-sm font-medium text-foreground">{cls.classTeacher}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">{t("students")}</span>
-                  <Badge variant="secondary">{cls.students} students</Badge>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {isLoading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {filteredClasses.length === 0 ? (
+            <div className="col-span-full text-center py-8 text-muted-foreground">
+              No classes found
+            </div>
+          ) : (
+            filteredClasses.map((cls) => (
+              <Card key={cls.id} className="overflow-hidden">
+                <CardHeader className="bg-primary/5 pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg">{cls.name}</CardTitle>
+                    <div className="flex gap-1">
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        onClick={() => handleEditClass(cls)}
+                        disabled={isDeleting === cls.id}
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive"
+                        onClick={() => handleDeleteClass(cls.id)}
+                        disabled={isDeleting === cls.id}
+                      >
+                        {isDeleting === cls.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                  <CardDescription>{cls.room}</CardDescription>
+                </CardHeader>
+                <CardContent className="pt-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">{t("classTeacher")}</span>
+                      <span className="text-sm font-medium text-foreground">{cls.classTeacher}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">{t("students")}</span>
+                      <Badge variant="secondary">{cls.students} students</Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
+      )}
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent>
@@ -365,15 +511,21 @@ export default function ClassesPage() {
                   onValueChange={(v) => setEditingClass({ ...editingClass, classTeacher: v })}
                 >
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder={isLoadingTeachers ? "Loading teachers..." : "Assign class teacher"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Mrs. Kumari Perera">Mrs. Kumari Perera</SelectItem>
-                    <SelectItem value="Mr. Amal Kumar">Mr. Amal Kumar</SelectItem>
-                    <SelectItem value="Mrs. Sithara Fernando">Mrs. Sithara Fernando</SelectItem>
-                    <SelectItem value="Mr. Nuwan Bandara">Mr. Nuwan Bandara</SelectItem>
-                    <SelectItem value="Mrs. Malini Rathnayake">Mrs. Malini Rathnayake</SelectItem>
-                    <SelectItem value="Mr. Ravi Kumar">Mr. Ravi Kumar</SelectItem>
+                    <SelectItem value="Not assigned">Not assigned</SelectItem>
+                    {teachers.length === 0 ? (
+                      <SelectItem value="no-teachers" disabled>
+                        {isLoadingTeachers ? "Loading..." : "No teachers available"}
+                      </SelectItem>
+                    ) : (
+                      teachers.map((teacher) => (
+                        <SelectItem key={teacher.id} value={teacher.name}>
+                          {teacher.name} {teacher.email ? `(${teacher.email})` : ''}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -387,10 +539,19 @@ export default function ClassesPage() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)} disabled={isSaving}>
               {t("cancel")}
             </Button>
-            <Button onClick={handleSaveEdit}>{t("save")}</Button>
+            <Button onClick={handleSaveEdit} disabled={isSaving}>
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                t("save")
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

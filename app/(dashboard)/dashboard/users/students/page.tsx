@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog"
 import { useLanguage } from "@/lib/i18n/context"
 import { Plus, Search, Edit, Trash2, GraduationCap, Loader2, AlertCircle } from "lucide-react"
+import { apiRequest } from "@/lib/api/client"
 
 interface Student {
   id: string
@@ -29,12 +30,31 @@ interface Student {
   status: string
 }
 
+interface Parent {
+  id: string
+  name: string
+  email: string
+  phone: string
+  status: string
+}
+
+interface Class {
+  id: string
+  name: string
+  grade: string
+  section: string
+}
+
 export default function StudentsPage() {
   const { t } = useLanguage()
   const [searchQuery, setSearchQuery] = useState("")
   const [filterClass, setFilterClass] = useState("all")
   const [students, setStudents] = useState<Student[]>([])
+  const [parents, setParents] = useState<Parent[]>([])
+  const [classes, setClasses] = useState<Class[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingParents, setIsLoadingParents] = useState(false)
+  const [isLoadingClasses, setIsLoadingClasses] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -43,31 +63,19 @@ export default function StudentsPage() {
   const [editingStudent, setEditingStudent] = useState<Student | null>(null)
   const [newStudent, setNewStudent] = useState({ name: "", class: "", parent: "" })
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
-
-  // Fetch students on mount
+  // Fetch students, parents, and classes on mount
   useEffect(() => {
     fetchStudents()
+    fetchParents()
+    fetchClasses()
   }, [])
 
   const fetchStudents = async () => {
     try {
       setIsLoading(true)
       setError(null)
-      const token = localStorage.getItem("digital-iskole-token")
-      
-      if (!token) {
-        setError("Not authenticated. Please login again.")
-        setIsLoading(false)
-        return
-      }
 
-      const response = await fetch(`${API_URL}/users/students`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      })
-
+      const response = await apiRequest('/users/students')
       const data = await response.json()
 
       if (!response.ok) {
@@ -77,9 +85,49 @@ export default function StudentsPage() {
       setStudents(data.data?.students || [])
     } catch (err: any) {
       console.error('Fetch students error:', err)
-      setError(err.message || 'Failed to load students')
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to load students')
+      }
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const fetchParents = async () => {
+    try {
+      setIsLoadingParents(true)
+
+      const response = await apiRequest('/users/parents')
+      const data = await response.json()
+
+      if (response.ok) {
+        setParents(data.data?.parents || [])
+      }
+    } catch (err: any) {
+      console.error('Fetch parents error:', err)
+      // Don't show error for parents fetch failure, just log it
+    } finally {
+      setIsLoadingParents(false)
+    }
+  }
+
+  const fetchClasses = async () => {
+    try {
+      setIsLoadingClasses(true)
+
+      const response = await apiRequest('/academic/classes')
+      const data = await response.json()
+
+      if (response.ok) {
+        setClasses(data.data?.classes || [])
+      }
+    } catch (err: any) {
+      console.error('Fetch classes error:', err)
+      // Don't show error for classes fetch failure, just log it
+    } finally {
+      setIsLoadingClasses(false)
     }
   }
 
@@ -100,20 +148,9 @@ export default function StudentsPage() {
     try {
       setIsSaving(true)
       setError(null)
-      const token = localStorage.getItem("digital-iskole-token")
-      
-      if (!token) {
-        setError("Not authenticated. Please login again.")
-        setIsSaving(false)
-        return
-      }
 
-      const response = await fetch(`${API_URL}/users/students`, {
+      const response = await apiRequest('/users/students', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           name: newStudent.name,
           class: newStudent.class,
@@ -132,7 +169,11 @@ export default function StudentsPage() {
       await fetchStudents() // Refresh list
     } catch (err: any) {
       console.error('Add student error:', err)
-      setError(err.message || 'Failed to create student')
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to create student')
+      }
     } finally {
       setIsSaving(false)
     }
@@ -149,20 +190,9 @@ export default function StudentsPage() {
     try {
       setIsSaving(true)
       setError(null)
-      const token = localStorage.getItem("digital-iskole-token")
-      
-      if (!token) {
-        setError("Not authenticated. Please login again.")
-        setIsSaving(false)
-        return
-      }
 
-      const response = await fetch(`${API_URL}/users/students/${editingStudent.id}`, {
+      const response = await apiRequest(`/users/students/${editingStudent.id}`, {
         method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           name: editingStudent.name,
           class: editingStudent.class,
@@ -182,7 +212,11 @@ export default function StudentsPage() {
       await fetchStudents() // Refresh list
     } catch (err: any) {
       console.error('Update student error:', err)
-      setError(err.message || 'Failed to update student')
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to update student')
+      }
     } finally {
       setIsSaving(false)
     }
@@ -196,19 +230,9 @@ export default function StudentsPage() {
     try {
       setIsDeleting(id)
       setError(null)
-      const token = localStorage.getItem("digital-iskole-token")
-      
-      if (!token) {
-        setError("Not authenticated. Please login again.")
-        setIsDeleting(null)
-        return
-      }
 
-      const response = await fetch(`${API_URL}/users/students/${id}`, {
+      const response = await apiRequest(`/users/students/${id}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
       })
 
       const data = await response.json()
@@ -220,7 +244,11 @@ export default function StudentsPage() {
       await fetchStudents() // Refresh list
     } catch (err: any) {
       console.error('Delete student error:', err)
-      setError(err.message || 'Failed to delete student')
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to delete student')
+      }
     } finally {
       setIsDeleting(null)
     }
@@ -267,13 +295,20 @@ export default function StudentsPage() {
                   <Label>{t("className")}</Label>
                   <Select value={newStudent.class} onValueChange={(v) => setNewStudent({ ...newStudent, class: v })}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select class" />
+                      <SelectValue placeholder={isLoadingClasses ? "Loading classes..." : "Select class"} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Grade 10-A">Grade 10-A</SelectItem>
-                      <SelectItem value="Grade 10-B">Grade 10-B</SelectItem>
-                      <SelectItem value="Grade 9-A">Grade 9-A</SelectItem>
-                      <SelectItem value="Grade 9-B">Grade 9-B</SelectItem>
+                      {classes.length === 0 ? (
+                        <SelectItem value="no-classes" disabled>
+                          {isLoadingClasses ? "Loading..." : "No classes available"}
+                        </SelectItem>
+                      ) : (
+                        classes.map((classItem) => (
+                          <SelectItem key={classItem.id} value={classItem.name}>
+                            {classItem.name}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -286,12 +321,20 @@ export default function StudentsPage() {
                 <Label>Parent/Guardian</Label>
                 <Select value={newStudent.parent} onValueChange={(v) => setNewStudent({ ...newStudent, parent: v })}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select or add parent" />
+                    <SelectValue placeholder={isLoadingParents ? "Loading parents..." : "Select parent"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Mr. Nimal Perera">Mr. Nimal Perera</SelectItem>
-                    <SelectItem value="Mrs. Kamala Silva">Mrs. Kamala Silva</SelectItem>
-                    <SelectItem value="Mr. Sunil Fernando">Mr. Sunil Fernando</SelectItem>
+                    {parents.length === 0 ? (
+                      <SelectItem value="" disabled>
+                        {isLoadingParents ? "Loading..." : "No parents available"}
+                      </SelectItem>
+                    ) : (
+                      parents.map((parent) => (
+                        <SelectItem key={parent.id} value={parent.name}>
+                          {parent.name} {parent.email ? `(${parent.email})` : ''}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -330,14 +373,15 @@ export default function StudentsPage() {
             </div>
             <Select value={filterClass} onValueChange={setFilterClass}>
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue placeholder="Filter by class" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Classes</SelectItem>
-                <SelectItem value="Grade 10-A">Grade 10-A</SelectItem>
-                <SelectItem value="Grade 10-B">Grade 10-B</SelectItem>
-                <SelectItem value="Grade 9-A">Grade 9-A</SelectItem>
-                <SelectItem value="Grade 8-B">Grade 8-B</SelectItem>
+                {classes.map((classItem) => (
+                  <SelectItem key={classItem.id} value={classItem.name}>
+                    {classItem.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -450,14 +494,20 @@ export default function StudentsPage() {
                     onValueChange={(v) => setEditingStudent({ ...editingStudent, class: v })}
                   >
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder={isLoadingClasses ? "Loading classes..." : "Select class"} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Grade 10-A">Grade 10-A</SelectItem>
-                      <SelectItem value="Grade 10-B">Grade 10-B</SelectItem>
-                      <SelectItem value="Grade 9-A">Grade 9-A</SelectItem>
-                      <SelectItem value="Grade 9-B">Grade 9-B</SelectItem>
-                      <SelectItem value="Grade 8-B">Grade 8-B</SelectItem>
+                      {classes.length === 0 ? (
+                        <SelectItem value="no-classes" disabled>
+                          {isLoadingClasses ? "Loading..." : "No classes available"}
+                        </SelectItem>
+                      ) : (
+                        classes.map((classItem) => (
+                          <SelectItem key={classItem.id} value={classItem.name}>
+                            {classItem.name}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -468,10 +518,27 @@ export default function StudentsPage() {
               </div>
               <div className="space-y-2">
                 <Label>Parent/Guardian</Label>
-                <Input
+                <Select
                   value={editingStudent.parent}
-                  onChange={(e) => setEditingStudent({ ...editingStudent, parent: e.target.value })}
-                />
+                  onValueChange={(v) => setEditingStudent({ ...editingStudent, parent: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={isLoadingParents ? "Loading parents..." : "Select parent"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {parents.length === 0 ? (
+                      <SelectItem value="" disabled>
+                        {isLoadingParents ? "Loading..." : "No parents available"}
+                      </SelectItem>
+                    ) : (
+                      parents.map((parent) => (
+                        <SelectItem key={parent.id} value={parent.name}>
+                          {parent.name} {parent.email ? `(${parent.email})` : ''}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>{t("status")}</Label>

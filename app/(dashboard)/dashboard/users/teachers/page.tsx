@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog"
 import { useLanguage } from "@/lib/i18n/context"
 import { Plus, Search, Edit, Trash2, Mail, Phone, Loader2, AlertCircle } from "lucide-react"
+import { apiRequest } from "@/lib/api/client"
 
 interface Teacher {
   id: string
@@ -30,11 +31,28 @@ interface Teacher {
   status: string
 }
 
+interface Subject {
+  id: string
+  name: string
+  code: string
+}
+
+interface Class {
+  id: string
+  name: string
+  grade: string
+  section: string
+}
+
 export default function TeachersPage() {
   const { t } = useLanguage()
   const [searchQuery, setSearchQuery] = useState("")
   const [teachers, setTeachers] = useState<Teacher[]>([])
+  const [subjects, setSubjects] = useState<Subject[]>([])
+  const [classes, setClasses] = useState<Class[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingSubjects, setIsLoadingSubjects] = useState(false)
+  const [isLoadingClasses, setIsLoadingClasses] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -46,35 +64,23 @@ export default function TeachersPage() {
     email: "",
     phone: "",
     subject: "",
-    assignedClass: "",
+    assignedClass: "not-assigned",
     password: "",
   })
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
-
-  // Fetch teachers on mount
+  // Fetch teachers, subjects, and classes on mount
   useEffect(() => {
     fetchTeachers()
+    fetchSubjects()
+    fetchClasses()
   }, [])
 
   const fetchTeachers = async () => {
     try {
       setIsLoading(true)
       setError(null)
-      const token = localStorage.getItem("digital-iskole-token")
-      
-      if (!token) {
-        setError("Not authenticated. Please login again.")
-        setIsLoading(false)
-        return
-      }
 
-      const response = await fetch(`${API_URL}/users/teachers`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      })
-
+      const response = await apiRequest('/users/teachers')
       const data = await response.json()
 
       if (!response.ok) {
@@ -84,9 +90,49 @@ export default function TeachersPage() {
       setTeachers(data.data?.teachers || [])
     } catch (err: any) {
       console.error('Fetch teachers error:', err)
-      setError(err.message || 'Failed to load teachers')
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to load teachers')
+      }
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const fetchSubjects = async () => {
+    try {
+      setIsLoadingSubjects(true)
+
+      const response = await apiRequest('/academic/subjects')
+      const data = await response.json()
+
+      if (response.ok) {
+        setSubjects(data.data?.subjects || [])
+      }
+    } catch (err: any) {
+      console.error('Fetch subjects error:', err)
+      // Don't show error for subjects fetch failure, just log it
+    } finally {
+      setIsLoadingSubjects(false)
+    }
+  }
+
+  const fetchClasses = async () => {
+    try {
+      setIsLoadingClasses(true)
+
+      const response = await apiRequest('/academic/classes')
+      const data = await response.json()
+
+      if (response.ok) {
+        setClasses(data.data?.classes || [])
+      }
+    } catch (err: any) {
+      console.error('Fetch classes error:', err)
+      // Don't show error for classes fetch failure, just log it
+    } finally {
+      setIsLoadingClasses(false)
     }
   }
 
@@ -103,29 +149,24 @@ export default function TeachersPage() {
       return
     }
 
+    // Validate password length (Firebase requires minimum 6 characters)
+    if (newTeacher.password.length < 6) {
+      setError("Password must be at least 6 characters long")
+      return
+    }
+
     try {
       setIsSaving(true)
       setError(null)
-      const token = localStorage.getItem("digital-iskole-token")
-      
-      if (!token) {
-        setError("Not authenticated. Please login again.")
-        setIsSaving(false)
-        return
-      }
 
-      const response = await fetch(`${API_URL}/users/teachers`, {
+      const response = await apiRequest('/users/teachers', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           name: newTeacher.name,
           email: newTeacher.email,
           phone: newTeacher.phone,
           subject: newTeacher.subject,
-          assignedClass: newTeacher.assignedClass || undefined,
+          assignedClass: newTeacher.assignedClass && newTeacher.assignedClass !== 'not-assigned' ? newTeacher.assignedClass : undefined,
           password: newTeacher.password,
         }),
       })
@@ -133,22 +174,58 @@ export default function TeachersPage() {
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.message || data.error?.message || 'Failed to create teacher')
+        // Extract error message from response
+        const errorMessage = data.error?.message || data.message || 'Failed to create teacher'
+        const errorCode = data.error?.code || data.code
+        
+        // Provide more specific error messages
+        let userFriendlyMessage = errorMessage
+        if (errorCode === 'EMAIL_EXISTS') {
+          userFriendlyMessage = 'This email is already registered. Please use a different email.'
+        } else if (errorCode === 'VALIDATION_ERROR') {
+          userFriendlyMessage = errorMessage
+        } else if (errorMessage.includes('password') || errorMessage.includes('Password')) {
+          userFriendlyMessage = 'Password must be at least 6 characters long'
+        }
+        
+        throw new Error(userFriendlyMessage)
       }
 
+      // Reset form first
+      setNewTeacher({ name: "", email: "", phone: "", subject: "", assignedClass: "not-assigned", password: "" })
+      
+      // Close dialog
       setDialogOpen(false)
-      setNewTeacher({ name: "", email: "", phone: "", subject: "", assignedClass: "", password: "" })
-      await fetchTeachers() // Refresh list
+      
+      // Refresh the teachers list (without showing loading state)
+      try {
+        const refreshResponse = await apiRequest('/users/teachers')
+        const refreshData = await refreshResponse.json()
+        if (refreshResponse.ok) {
+          setTeachers(refreshData.data?.teachers || [])
+        }
+      } catch (refreshErr) {
+        console.error('Refresh teachers error:', refreshErr)
+        // If refresh fails, still try to fetch normally
+        await fetchTeachers()
+      }
     } catch (err: any) {
       console.error('Add teacher error:', err)
-      setError(err.message || 'Failed to create teacher')
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to create teacher')
+      }
     } finally {
       setIsSaving(false)
     }
   }
 
   const handleEditTeacher = (teacher: Teacher) => {
-    setEditingTeacher(teacher)
+    setEditingTeacher({
+      ...teacher,
+      assignedClass: teacher.assignedClass || 'not-assigned',
+    })
     setEditDialogOpen(true)
   }
 
@@ -158,26 +235,15 @@ export default function TeachersPage() {
     try {
       setIsSaving(true)
       setError(null)
-      const token = localStorage.getItem("digital-iskole-token")
-      
-      if (!token) {
-        setError("Not authenticated. Please login again.")
-        setIsSaving(false)
-        return
-      }
 
-      const response = await fetch(`${API_URL}/users/teachers/${editingTeacher.id}`, {
+      const response = await apiRequest(`/users/teachers/${editingTeacher.id}`, {
         method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           name: editingTeacher.name,
           email: editingTeacher.email,
           phone: editingTeacher.phone,
           subject: editingTeacher.subject,
-          assignedClass: editingTeacher.assignedClass || undefined,
+          assignedClass: editingTeacher.assignedClass && editingTeacher.assignedClass !== 'not-assigned' ? editingTeacher.assignedClass : undefined,
           status: editingTeacher.status,
         }),
       })
@@ -188,12 +254,29 @@ export default function TeachersPage() {
         throw new Error(data.message || data.error?.message || 'Failed to update teacher')
       }
 
+      // Close dialog
       setEditDialogOpen(false)
       setEditingTeacher(null)
-      await fetchTeachers() // Refresh list
+      
+      // Refresh the teachers list (without showing loading state)
+      try {
+        const refreshResponse = await apiRequest('/users/teachers')
+        const refreshData = await refreshResponse.json()
+        if (refreshResponse.ok) {
+          setTeachers(refreshData.data?.teachers || [])
+        }
+      } catch (refreshErr) {
+        console.error('Refresh teachers error:', refreshErr)
+        // If refresh fails, still try to fetch normally
+        await fetchTeachers()
+      }
     } catch (err: any) {
       console.error('Update teacher error:', err)
-      setError(err.message || 'Failed to update teacher')
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to update teacher')
+      }
     } finally {
       setIsSaving(false)
     }
@@ -207,19 +290,9 @@ export default function TeachersPage() {
     try {
       setIsDeleting(id)
       setError(null)
-      const token = localStorage.getItem("digital-iskole-token")
-      
-      if (!token) {
-        setError("Not authenticated. Please login again.")
-        setIsDeleting(null)
-        return
-      }
 
-      const response = await fetch(`${API_URL}/users/teachers/${id}`, {
+      const response = await apiRequest(`/users/teachers/${id}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
       })
 
       const data = await response.json()
@@ -231,7 +304,11 @@ export default function TeachersPage() {
       await fetchTeachers() // Refresh list
     } catch (err: any) {
       console.error('Delete teacher error:', err)
-      setError(err.message || 'Failed to delete teacher')
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to delete teacher')
+      }
     } finally {
       setIsDeleting(null)
     }
@@ -297,16 +374,20 @@ export default function TeachersPage() {
                   onValueChange={(v) => setNewTeacher((prev) => ({ ...prev, subject: v }))}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select subject" />
+                    <SelectValue placeholder={isLoadingSubjects ? "Loading subjects..." : "Select subject"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Mathematics">Mathematics</SelectItem>
-                    <SelectItem value="Science">Science</SelectItem>
-                    <SelectItem value="English">English</SelectItem>
-                    <SelectItem value="Sinhala">Sinhala</SelectItem>
-                    <SelectItem value="Tamil">Tamil</SelectItem>
-                    <SelectItem value="History">History</SelectItem>
-                    <SelectItem value="Geography">Geography</SelectItem>
+                    {subjects.length === 0 ? (
+                      <SelectItem value="no-subjects" disabled>
+                        {isLoadingSubjects ? "Loading..." : "No subjects available"}
+                      </SelectItem>
+                    ) : (
+                      subjects.map((subject) => (
+                        <SelectItem key={subject.id} value={subject.name}>
+                          {subject.name} ({subject.code})
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -317,15 +398,21 @@ export default function TeachersPage() {
                   onValueChange={(v) => setNewTeacher((prev) => ({ ...prev, assignedClass: v }))}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Assign class (optional)" />
+                    <SelectValue placeholder={isLoadingClasses ? "Loading classes..." : "Assign class (optional)"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Grade 10-A">Grade 10-A</SelectItem>
-                    <SelectItem value="Grade 10-B">Grade 10-B</SelectItem>
-                    <SelectItem value="Grade 9-A">Grade 9-A</SelectItem>
-                    <SelectItem value="Grade 9-B">Grade 9-B</SelectItem>
-                    <SelectItem value="Grade 8-A">Grade 8-A</SelectItem>
-                    <SelectItem value="Grade 8-B">Grade 8-B</SelectItem>
+                    <SelectItem value="not-assigned">Not assigned</SelectItem>
+                    {classes.length === 0 ? (
+                      <SelectItem value="no-classes" disabled>
+                        {isLoadingClasses ? "Loading..." : "No classes available"}
+                      </SelectItem>
+                    ) : (
+                      classes.map((classItem) => (
+                        <SelectItem key={classItem.id} value={classItem.name}>
+                          {classItem.name}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -336,8 +423,14 @@ export default function TeachersPage() {
                   placeholder="Temporary password"
                   value={newTeacher.password}
                   onChange={(e) => setNewTeacher((prev) => ({ ...prev, password: e.target.value }))}
+                  minLength={6}
                 />
-                <p className="text-xs text-muted-foreground">Teacher will use this password to login</p>
+                <p className="text-xs text-muted-foreground">
+                  Teacher will use this password to login. Password must be at least 6 characters long.
+                </p>
+                {newTeacher.password && newTeacher.password.length < 6 && (
+                  <p className="text-xs text-destructive">Password must be at least 6 characters</p>
+                )}
               </div>
             </div>
             <DialogFooter>
@@ -508,16 +601,20 @@ export default function TeachersPage() {
                   onValueChange={(v) => setEditingTeacher({ ...editingTeacher, subject: v })}
                 >
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder={isLoadingSubjects ? "Loading subjects..." : "Select subject"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Mathematics">Mathematics</SelectItem>
-                    <SelectItem value="Science">Science</SelectItem>
-                    <SelectItem value="English">English</SelectItem>
-                    <SelectItem value="Sinhala">Sinhala</SelectItem>
-                    <SelectItem value="Tamil">Tamil</SelectItem>
-                    <SelectItem value="History">History</SelectItem>
-                    <SelectItem value="Geography">Geography</SelectItem>
+                    {subjects.length === 0 ? (
+                      <SelectItem value="no-subjects" disabled>
+                        {isLoadingSubjects ? "Loading..." : "No subjects available"}
+                      </SelectItem>
+                    ) : (
+                      subjects.map((subject) => (
+                        <SelectItem key={subject.id} value={subject.name}>
+                          {subject.name} ({subject.code})
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -528,15 +625,21 @@ export default function TeachersPage() {
                   onValueChange={(v) => setEditingTeacher({ ...editingTeacher, assignedClass: v })}
                 >
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder={isLoadingClasses ? "Loading classes..." : "Assign class (optional)"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Grade 10-A">Grade 10-A</SelectItem>
-                    <SelectItem value="Grade 10-B">Grade 10-B</SelectItem>
-                    <SelectItem value="Grade 9-A">Grade 9-A</SelectItem>
-                    <SelectItem value="Grade 9-B">Grade 9-B</SelectItem>
-                    <SelectItem value="Grade 8-A">Grade 8-A</SelectItem>
-                    <SelectItem value="Grade 8-B">Grade 8-B</SelectItem>
+                    <SelectItem value="not-assigned">Not assigned</SelectItem>
+                    {classes.length === 0 ? (
+                      <SelectItem value="no-classes" disabled>
+                        {isLoadingClasses ? "Loading..." : "No classes available"}
+                      </SelectItem>
+                    ) : (
+                      classes.map((classItem) => (
+                        <SelectItem key={classItem.id} value={classItem.name}>
+                          {classItem.name}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>

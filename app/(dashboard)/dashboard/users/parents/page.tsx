@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog"
 import { useLanguage } from "@/lib/i18n/context"
 import { Plus, Search, Edit, Trash2, Mail, Phone, Users, Loader2, AlertCircle } from "lucide-react"
+import { apiRequest } from "@/lib/api/client"
 
 interface Parent {
   id: string
@@ -42,8 +43,6 @@ export default function ParentsPage() {
   const [editingParent, setEditingParent] = useState<Parent | null>(null)
   const [newParent, setNewParent] = useState({ name: "", email: "", phone: "", password: "" })
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
-
   // Fetch parents on mount
   useEffect(() => {
     fetchParents()
@@ -53,20 +52,8 @@ export default function ParentsPage() {
     try {
       setIsLoading(true)
       setError(null)
-      const token = localStorage.getItem("digital-iskole-token")
-      
-      if (!token) {
-        setError("Not authenticated. Please login again.")
-        setIsLoading(false)
-        return
-      }
 
-      const response = await fetch(`${API_URL}/users/parents`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      })
-
+      const response = await apiRequest('/users/parents')
       const data = await response.json()
 
       if (!response.ok) {
@@ -76,7 +63,11 @@ export default function ParentsPage() {
       setParents(data.data?.parents || [])
     } catch (err: any) {
       console.error('Fetch parents error:', err)
-      setError(err.message || 'Failed to load parents')
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to load parents')
+      }
     } finally {
       setIsLoading(false)
     }
@@ -97,20 +88,9 @@ export default function ParentsPage() {
     try {
       setIsSaving(true)
       setError(null)
-      const token = localStorage.getItem("digital-iskole-token")
-      
-      if (!token) {
-        setError("Not authenticated. Please login again.")
-        setIsSaving(false)
-        return
-      }
 
-      const response = await fetch(`${API_URL}/users/parents`, {
+      const response = await apiRequest('/users/parents', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           name: newParent.name,
           email: newParent.email,
@@ -130,7 +110,11 @@ export default function ParentsPage() {
       await fetchParents() // Refresh list
     } catch (err: any) {
       console.error('Add parent error:', err)
-      setError(err.message || 'Failed to create parent')
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to create parent')
+      }
     } finally {
       setIsSaving(false)
     }
@@ -147,20 +131,9 @@ export default function ParentsPage() {
     try {
       setIsSaving(true)
       setError(null)
-      const token = localStorage.getItem("digital-iskole-token")
-      
-      if (!token) {
-        setError("Not authenticated. Please login again.")
-        setIsSaving(false)
-        return
-      }
 
-      const response = await fetch(`${API_URL}/users/parents/${editingParent.id}`, {
+      const response = await apiRequest(`/users/parents/${editingParent.id}`, {
         method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           name: editingParent.name,
           email: editingParent.email,
@@ -180,7 +153,11 @@ export default function ParentsPage() {
       await fetchParents() // Refresh list
     } catch (err: any) {
       console.error('Update parent error:', err)
-      setError(err.message || 'Failed to update parent')
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to update parent')
+      }
     } finally {
       setIsSaving(false)
     }
@@ -194,19 +171,9 @@ export default function ParentsPage() {
     try {
       setIsDeleting(id)
       setError(null)
-      const token = localStorage.getItem("digital-iskole-token")
-      
-      if (!token) {
-        setError("Not authenticated. Please login again.")
-        setIsDeleting(null)
-        return
-      }
 
-      const response = await fetch(`${API_URL}/users/parents/${id}`, {
+      const response = await apiRequest(`/users/parents/${id}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
       })
 
       const data = await response.json()
@@ -218,7 +185,11 @@ export default function ParentsPage() {
       await fetchParents() // Refresh list
     } catch (err: any) {
       console.error('Delete parent error:', err)
-      setError(err.message || 'Failed to delete parent')
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to delete parent')
+      }
     } finally {
       setIsDeleting(null)
     }

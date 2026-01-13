@@ -1,0 +1,129 @@
+/**
+ * API Client with automatic token refresh
+ * Handles 401 errors by refreshing the token and retrying the request
+ */
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+
+let isRefreshing = false;
+let refreshPromise: Promise<string | null> | null = null;
+
+/**
+ * Refresh the access token using the refresh token
+ */
+async function refreshAccessToken(): Promise<string | null> {
+  // If already refreshing, wait for that promise
+  if (refreshPromise) {
+    return refreshPromise;
+  }
+
+  refreshPromise = (async () => {
+    try {
+      const refreshToken = localStorage.getItem('digital-iskole-refresh-token');
+      
+      if (!refreshToken) {
+        throw new Error('No refresh token available');
+      }
+
+      const response = await fetch(`${API_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Token refresh failed');
+      }
+
+      const newToken = data.data?.token;
+      if (newToken) {
+        localStorage.setItem('digital-iskole-token', newToken);
+        return newToken;
+      }
+
+      throw new Error('No token in refresh response');
+    } catch (error: any) {
+      console.error('Token refresh error:', error);
+      // Clear tokens and redirect to login
+      localStorage.removeItem('digital-iskole-token');
+      localStorage.removeItem('digital-iskole-refresh-token');
+      localStorage.removeItem('digital-iskole-user');
+      
+      // Redirect to login page
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
+      
+      return null;
+    } finally {
+      isRefreshing = false;
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
+
+/**
+ * Make an API request with automatic token refresh on 401
+ */
+export async function apiRequest(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const token = localStorage.getItem('digital-iskole-token');
+  
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  let response = await fetch(`${API_URL}${endpoint}`, {
+    ...options,
+    headers,
+  });
+
+  // If token expired, try to refresh and retry
+  if (response.status === 401) {
+    const data = await response.json().catch(() => ({}));
+    const errorCode = data.error?.code || data.code;
+
+    // Only refresh if it's a token expiration error
+    if (errorCode === 'AUTH_TOKEN_EXPIRED' || errorCode === 'AUTH_TOKEN_INVALID') {
+      const newToken = await refreshAccessToken();
+      
+      if (newToken) {
+        // Retry the original request with new token
+        headers['Authorization'] = `Bearer ${newToken}`;
+        response = await fetch(`${API_URL}${endpoint}`, {
+          ...options,
+          headers,
+        });
+      } else {
+        // Refresh failed, throw error to trigger redirect
+        throw new Error('Token refresh failed. Please login again.');
+      }
+    }
+  }
+
+  return response;
+}
+
+/**
+ * Helper function to parse JSON response
+ */
+export async function apiRequestJson<T = any>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const response = await apiRequest(endpoint, options);
+  return response.json();
+}

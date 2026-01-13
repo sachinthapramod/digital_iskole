@@ -1,31 +1,19 @@
 import { Router } from 'express';
 import { authenticateToken } from '../middleware/auth.middleware';
 import { requireAdmin, requireAdminOrTeacher } from '../middleware/role.middleware';
+import classesController from '../controllers/classes.controller';
+import subjectsController from '../controllers/subjects.controller';
 
 const router = Router();
 
 router.use(authenticateToken);
 
 // Classes routes
-router.get('/classes', requireAdminOrTeacher, (_req, res) => {
-  res.json({ message: 'Classes list - to be implemented' });
-});
-
-router.post('/classes', requireAdmin, (_req, res) => {
-  res.json({ message: 'Create class - to be implemented' });
-});
-
-router.get('/classes/:id', requireAdminOrTeacher, (_req, res) => {
-  res.json({ message: 'Get class - to be implemented' });
-});
-
-router.put('/classes/:id', requireAdmin, (_req, res) => {
-  res.json({ message: 'Update class - to be implemented' });
-});
-
-router.delete('/classes/:id', requireAdmin, (_req, res) => {
-  res.json({ message: 'Delete class - to be implemented' });
-});
+router.get('/classes', requireAdminOrTeacher, classesController.getClasses.bind(classesController));
+router.post('/classes', requireAdmin, classesController.createClass.bind(classesController));
+router.get('/classes/:id', requireAdminOrTeacher, classesController.getClass.bind(classesController));
+router.put('/classes/:id', requireAdmin, classesController.updateClass.bind(classesController));
+router.delete('/classes/:id', requireAdmin, classesController.deleteClass.bind(classesController));
 
 router.get('/classes/:id/students', requireAdminOrTeacher, (_req, res) => {
   res.json({ message: 'Class students - to be implemented' });
@@ -40,29 +28,11 @@ router.post('/classes/:id/assign-teacher', requireAdmin, (_req, res) => {
 });
 
 // Subjects routes
-router.get('/subjects', requireAdminOrTeacher, (_req, res) => {
-  res.json({ message: 'Subjects list - to be implemented' });
-});
-
-router.post('/subjects', requireAdmin, (_req, res) => {
-  res.json({ message: 'Create subject - to be implemented' });
-});
-
-router.get('/subjects/:id', requireAdminOrTeacher, (_req, res) => {
-  res.json({ message: 'Get subject - to be implemented' });
-});
-
-router.put('/subjects/:id', requireAdmin, (_req, res) => {
-  res.json({ message: 'Update subject - to be implemented' });
-});
-
-router.delete('/subjects/:id', requireAdmin, (_req, res) => {
-  res.json({ message: 'Delete subject - to be implemented' });
-});
-
-router.get('/subjects/grade/:grade', requireAdminOrTeacher, (_req, res) => {
-  res.json({ message: 'Subjects by grade - to be implemented' });
-});
+router.get('/subjects', requireAdminOrTeacher, subjectsController.getSubjects.bind(subjectsController));
+router.post('/subjects', requireAdmin, subjectsController.createSubject.bind(subjectsController));
+router.get('/subjects/:id', requireAdminOrTeacher, subjectsController.getSubject.bind(subjectsController));
+router.put('/subjects/:id', requireAdmin, subjectsController.updateSubject.bind(subjectsController));
+router.delete('/subjects/:id', requireAdmin, subjectsController.deleteSubject.bind(subjectsController));
 
 export default router;
 

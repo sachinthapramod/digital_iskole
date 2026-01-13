@@ -28,6 +28,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: LoginError }>
   logout: () => Promise<void>
   updateUser: (userData: User) => void
+  refreshToken: () => Promise<boolean>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -126,7 +127,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("digital-iskole-user", JSON.stringify(userData))
   }
 
-  return <AuthContext.Provider value={{ user, isLoading, login, logout, updateUser }}>{children}</AuthContext.Provider>
+  const refreshToken = async (): Promise<boolean> => {
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
+      const refreshTokenValue = localStorage.getItem("digital-iskole-refresh-token")
+      
+      if (!refreshTokenValue) {
+        return false
+      }
+
+      const response = await fetch(`${API_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ refreshToken: refreshTokenValue }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        // Refresh failed, clear tokens
+        localStorage.removeItem("digital-iskole-token")
+        localStorage.removeItem("digital-iskole-refresh-token")
+        localStorage.removeItem("digital-iskole-user")
+        setUser(null)
+        return false
+      }
+
+      // Update token
+      const newToken = data.data?.token
+      if (newToken) {
+        localStorage.setItem("digital-iskole-token", newToken)
+        return true
+      }
+
+      return false
+    } catch (error: any) {
+      console.error('Refresh token error:', error)
+      // Clear tokens on error
+      localStorage.removeItem("digital-iskole-token")
+      localStorage.removeItem("digital-iskole-refresh-token")
+      localStorage.removeItem("digital-iskole-user")
+      setUser(null)
+      return false
+    }
+  }
+
+  return <AuthContext.Provider value={{ user, isLoading, login, logout, updateUser, refreshToken }}>{children}</AuthContext.Provider>
 }
 
 export function useAuth() {

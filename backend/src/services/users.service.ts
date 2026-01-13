@@ -156,7 +156,15 @@ export class UsersService {
       if (error.code === 'auth/email-already-exists') {
         throw new ApiErrorResponse('EMAIL_EXISTS', 'Email already registered', 400);
       }
-      throw new ApiErrorResponse('CREATE_FAILED', 'Failed to create teacher', 500);
+      if (error.code === 'auth/invalid-password' || error.message?.includes('password')) {
+        throw new ApiErrorResponse('INVALID_PASSWORD', 'Password must be at least 6 characters long', 400);
+      }
+      if (error.code === 'auth/invalid-email') {
+        throw new ApiErrorResponse('INVALID_EMAIL', 'Invalid email address', 400);
+      }
+      // Log the full error for debugging
+      logger.error('Unexpected error creating teacher:', error);
+      throw new ApiErrorResponse('CREATE_FAILED', error.message || 'Failed to create teacher', 500);
     }
   }
 
