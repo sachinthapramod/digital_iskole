@@ -1,13 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useLanguage } from "@/lib/i18n/context"
 import { useAuth } from "@/lib/auth/context"
+import { apiRequest } from "@/lib/api/client"
 import { useRouter } from "next/navigation"
 import {
   Search,
@@ -20,99 +22,129 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
+  Loader2,
+  AlertCircle,
 } from "lucide-react"
 
-// Mock data - students in teacher's assigned class
-const mockClassStudents = [
-  {
-    id: "1",
-    name: "Kasun Perera",
-    rollNo: "10A001",
-    class: "Grade 10-A",
-    parent: "Mr. Nimal Perera",
-    parentPhone: "+94 77 123 4567",
-    parentEmail: "nimal.perera@email.com",
-    attendance: 92,
-    avgMarks: 78,
-    status: "active",
-    trend: "up",
-  },
-  {
-    id: "2",
-    name: "Nimali Silva",
-    rollNo: "10A002",
-    class: "Grade 10-A",
-    parent: "Mrs. Kamala Silva",
-    parentPhone: "+94 77 234 5678",
-    parentEmail: "kamala.silva@email.com",
-    attendance: 88,
-    avgMarks: 85,
-    status: "active",
-    trend: "up",
-  },
-  {
-    id: "3",
-    name: "Amal Fernando",
-    rollNo: "10A003",
-    class: "Grade 10-A",
-    parent: "Mr. Sunil Fernando",
-    parentPhone: "+94 77 345 6789",
-    parentEmail: "sunil.fernando@email.com",
-    attendance: 75,
-    avgMarks: 62,
-    status: "active",
-    trend: "down",
-  },
-  {
-    id: "4",
-    name: "Sithara Jayawardena",
-    rollNo: "10A004",
-    class: "Grade 10-A",
-    parent: "Mrs. Malini Jayawardena",
-    parentPhone: "+94 77 456 7890",
-    parentEmail: "malini.j@email.com",
-    attendance: 95,
-    avgMarks: 91,
-    status: "active",
-    trend: "stable",
-  },
-  {
-    id: "5",
-    name: "Dinesh Kumar",
-    rollNo: "10A005",
-    class: "Grade 10-A",
-    parent: "Mr. Ravi Kumar",
-    parentPhone: "+94 77 567 8901",
-    parentEmail: "ravi.kumar@email.com",
-    attendance: 68,
-    avgMarks: 55,
-    status: "active",
-    trend: "down",
-  },
-  {
-    id: "6",
-    name: "Priya Mendis",
-    rollNo: "10A006",
-    class: "Grade 10-A",
-    parent: "Mrs. Sita Mendis",
-    parentPhone: "+94 77 678 9012",
-    parentEmail: "sita.mendis@email.com",
-    attendance: 90,
-    avgMarks: 72,
-    status: "active",
-    trend: "up",
-  },
-]
+interface Student {
+  id: string
+  name: string
+  rollNo: string
+  class: string
+  parent?: string
+  parentPhone?: string
+  parentEmail?: string
+  attendance: number
+  avgMarks: number
+  status: string
+  trend: "up" | "down" | "stable"
+}
 
 export default function TeacherStudentsPage() {
   const { t } = useLanguage()
   const { user } = useAuth()
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState("")
-  const [selectedStudent, setSelectedStudent] = useState<(typeof mockClassStudents)[0] | null>(null)
+  const [students, setStudents] = useState<Student[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
 
-  const filteredStudents = mockClassStudents.filter((student) => {
+  useEffect(() => {
+    if (user?.assignedClass) {
+      fetchStudents()
+    } else {
+      setIsLoading(false)
+      setError("No class assigned. Please contact administrator.")
+    }
+  }, [user?.assignedClass])
+
+  const fetchStudents = async () => {
+    if (!user?.assignedClass) return
+
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      // Fetch students from the class
+      const studentsResponse = await apiRequest(`/attendance/students?className=${encodeURIComponent(user.assignedClass)}`)
+      const studentsData = await studentsResponse.json()
+
+      if (!studentsResponse.ok) {
+        throw new Error(studentsData.message || studentsData.error?.message || 'Failed to fetch students')
+      }
+
+      const studentsList = studentsData.data?.students || []
+
+      // Fetch attendance stats and parent info for each student
+      const studentsWithStats = await Promise.all(
+        studentsList.map(async (student: any) => {
+          try {
+            // Fetch attendance stats
+            const statsResponse = await apiRequest(`/attendance/student/${student.id}/stats`)
+            const statsData = await statsResponse.json()
+            const stats = statsResponse.ok ? statsData.data?.stats : null
+
+            // Fetch full student details to get parent info
+            const studentDetailsResponse = await apiRequest(`/users/students/${student.id}`)
+            const studentDetailsData = await studentDetailsResponse.json()
+            const studentDetails = studentDetailsResponse.ok ? studentDetailsData.data?.student : null
+
+            // Calculate trend based on attendance
+            let trend: "up" | "down" | "stable" = "stable"
+            if (stats) {
+              // Simple trend calculation - can be improved with historical data
+              if (stats.attendanceRate >= 90) trend = "up"
+              else if (stats.attendanceRate < 75) trend = "down"
+            }
+
+            return {
+              id: student.id,
+              name: student.name,
+              rollNo: student.rollNo || student.admissionNumber || "N/A",
+              class: user.assignedClass,
+              parent: studentDetails?.parent || studentDetails?.parentName || "N/A",
+              parentPhone: studentDetails?.parentPhone || "N/A",
+              parentEmail: studentDetails?.parentEmail || "N/A",
+              attendance: stats?.attendanceRate || 0,
+              avgMarks: 0, // TODO: Fetch from marks API when available
+              status: studentDetails?.status || "active",
+              trend,
+            }
+          } catch (err) {
+            console.error(`Error fetching stats for student ${student.id}:`, err)
+            return {
+              id: student.id,
+              name: student.name,
+              rollNo: student.rollNo || student.admissionNumber || "N/A",
+              class: user.assignedClass,
+              parent: "N/A",
+              parentPhone: "N/A",
+              parentEmail: "N/A",
+              attendance: 0,
+              avgMarks: 0,
+              status: "active",
+              trend: "stable" as const,
+            }
+          }
+        })
+      )
+
+      setStudents(studentsWithStats)
+    } catch (err: any) {
+      console.error('Fetch students error:', err)
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to load students')
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const filteredStudents = students.filter((student) => {
     return (
       student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       student.rollNo.toLowerCase().includes(searchQuery.toLowerCase())
@@ -140,17 +172,21 @@ export default function TeacherStudentsPage() {
     }
   }
 
-  const openStudentDetails = (student: (typeof mockClassStudents)[0]) => {
+  const openStudentDetails = (student: Student) => {
     setSelectedStudent(student)
     setDetailsOpen(true)
   }
 
   // Calculate class statistics
   const classStats = {
-    totalStudents: mockClassStudents.length,
-    avgAttendance: Math.round(mockClassStudents.reduce((acc, s) => acc + s.attendance, 0) / mockClassStudents.length),
-    avgMarks: Math.round(mockClassStudents.reduce((acc, s) => acc + s.avgMarks, 0) / mockClassStudents.length),
-    atRisk: mockClassStudents.filter((s) => s.attendance < 75 || s.avgMarks < 60).length,
+    totalStudents: students.length,
+    avgAttendance: students.length > 0
+      ? Math.round(students.reduce((acc, s) => acc + s.attendance, 0) / students.length)
+      : 0,
+    avgMarks: students.length > 0
+      ? Math.round(students.reduce((acc, s) => acc + s.avgMarks, 0) / students.length)
+      : 0,
+    atRisk: students.filter((s) => s.attendance < 75 || s.avgMarks < 60).length,
   }
 
   return (
@@ -158,8 +194,18 @@ export default function TeacherStudentsPage() {
       {/* Page Header */}
       <div>
         <h1 className="text-2xl font-bold text-foreground">{t("students")}</h1>
-        <p className="text-muted-foreground">View and manage students in your class (Grade 10-A)</p>
+        <p className="text-muted-foreground">
+          View and manage students in your class ({user?.assignedClass || "No class assigned"})
+        </p>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
       {/* Class Statistics */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -236,60 +282,72 @@ export default function TeacherStudentsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Class Students</CardTitle>
-          <CardDescription>{filteredStudents.length} students in Grade 10-A</CardDescription>
+          <CardDescription>
+            {isLoading ? "Loading..." : `${filteredStudents.length} students in ${user?.assignedClass || ""}`}
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Roll No</th>
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Student Name</th>
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Parent/Guardian</th>
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("attendance")}</th>
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Avg Marks</th>
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Trend</th>
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("actions")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredStudents.map((student) => (
-                  <tr key={student.id} className="border-b border-border last:border-0">
-                    <td className="py-3 px-2 text-sm text-muted-foreground">{student.rollNo}</td>
-                    <td className="py-3 px-2">
-                      <div className="flex items-center gap-3">
-                        <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center">
-                          <span className="text-sm font-medium text-primary">{student.name.charAt(0)}</span>
-                        </div>
-                        <span className="text-sm font-medium text-foreground">{student.name}</span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-2 text-sm text-muted-foreground">{student.parent}</td>
-                    <td className="py-3 px-2">{getAttendanceBadge(student.attendance)}</td>
-                    <td className="py-3 px-2">
-                      <span
-                        className={`text-sm font-medium ${
-                          student.avgMarks >= 75
-                            ? "text-success"
-                            : student.avgMarks >= 50
-                              ? "text-foreground"
-                              : "text-destructive"
-                        }`}
-                      >
-                        {student.avgMarks}%
-                      </span>
-                    </td>
-                    <td className="py-3 px-2">{getTrendIcon(student.trend)}</td>
-                    <td className="py-3 px-2">
-                      <Button size="sm" variant="outline" onClick={() => openStudentDetails(student)}>
-                        View Details
-                      </Button>
-                    </td>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : filteredStudents.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              {searchQuery ? "No students found matching your search." : "No students found in this class."}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Roll No</th>
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Student Name</th>
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Parent/Guardian</th>
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("attendance")}</th>
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Avg Marks</th>
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Trend</th>
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("actions")}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {filteredStudents.map((student) => (
+                    <tr key={student.id} className="border-b border-border last:border-0">
+                      <td className="py-3 px-2 text-sm text-muted-foreground">{student.rollNo}</td>
+                      <td className="py-3 px-2">
+                        <div className="flex items-center gap-3">
+                          <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center">
+                            <span className="text-sm font-medium text-primary">{student.name.charAt(0)}</span>
+                          </div>
+                          <span className="text-sm font-medium text-foreground">{student.name}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-2 text-sm text-muted-foreground">{student.parent}</td>
+                      <td className="py-3 px-2">{getAttendanceBadge(student.attendance)}</td>
+                      <td className="py-3 px-2">
+                        <span
+                          className={`text-sm font-medium ${
+                            student.avgMarks >= 75
+                              ? "text-success"
+                              : student.avgMarks >= 50
+                                ? "text-foreground"
+                                : "text-destructive"
+                          }`}
+                        >
+                          {student.avgMarks > 0 ? `${student.avgMarks}%` : "N/A"}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2">{getTrendIcon(student.trend)}</td>
+                      <td className="py-3 px-2">
+                        <Button size="sm" variant="outline" onClick={() => openStudentDetails(student)}>
+                          View Details
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
 

@@ -1,30 +1,18 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useLanguage } from "@/lib/i18n/context"
 import { useAuth } from "@/lib/auth/context"
-import { CheckCircle, XCircle, Clock, Save, Search, Calendar, TrendingUp, TrendingDown } from "lucide-react"
-
-// Mock student data for teachers/admin
-const mockStudents = [
-  { id: "1", name: "Kasun Perera", rollNo: "001", status: "present" },
-  { id: "2", name: "Nimali Silva", rollNo: "002", status: "present" },
-  { id: "3", name: "Amal Fernando", rollNo: "003", status: "absent" },
-  { id: "4", name: "Sithara Jayawardena", rollNo: "004", status: "late" },
-  { id: "5", name: "Dinesh Kumar", rollNo: "005", status: "present" },
-  { id: "6", name: "Priya Mendis", rollNo: "006", status: "present" },
-  { id: "7", name: "Ruwan Bandara", rollNo: "007", status: "absent" },
-  { id: "8", name: "Malini Rathnayake", rollNo: "008", status: "present" },
-  { id: "9", name: "Nuwan Herath", rollNo: "009", status: "present" },
-  { id: "10", name: "Chamari De Silva", rollNo: "010", status: "late" },
-]
+import { apiRequest } from "@/lib/api/client"
+import { CheckCircle, XCircle, Clock, Save, Search, Calendar, TrendingUp, TrendingDown, Loader2, AlertCircle, Edit, History, ClipboardCheck } from "lucide-react"
 
 const mockParentChildren = [
   {
@@ -93,34 +81,293 @@ const mockParentChildren = [
 
 type AttendanceStatus = "present" | "absent" | "late" | "holiday"
 
+interface Student {
+  id: string
+  name: string
+  rollNo: string
+}
+
+interface Class {
+  id: string
+  name: string
+}
+
 export default function AttendancePage() {
   const { t } = useLanguage()
   const { user } = useAuth()
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0])
-  const [selectedClass, setSelectedClass] = useState("grade-10-a")
+  const [selectedClass, setSelectedClass] = useState<string>("")
+  const [classes, setClasses] = useState<Class[]>([])
+  const [students, setStudents] = useState<Student[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedChild, setSelectedChild] = useState(mockParentChildren[0]?.id || "")
-  const [attendance, setAttendance] = useState<Record<string, AttendanceStatus>>(
-    mockStudents.reduce(
-      (acc, student) => ({ ...acc, [student.id]: student.status as AttendanceStatus }),
-      {} as Record<string, AttendanceStatus>,
-    ),
-  )
+  const [attendance, setAttendance] = useState<Record<string, AttendanceStatus>>({})
+  const [isLoading, setIsLoading] = useState(false)
+  const [isLoadingStudents, setIsLoadingStudents] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<"mark" | "history">("mark")
+  const [historyStartDate, setHistoryStartDate] = useState(() => {
+    const date = new Date()
+    date.setDate(date.getDate() - 30) // Last 30 days
+    return date.toISOString().split("T")[0]
+  })
+  const [historyEndDate, setHistoryEndDate] = useState(new Date().toISOString().split("T")[0])
+  const [attendanceHistory, setAttendanceHistory] = useState<any[]>([])
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const skipFetchAttendanceRef = useRef(false)
 
   const isTeacherOrAdmin = user?.role === "teacher" || user?.role === "admin"
   const isParent = user?.role === "parent"
+  const isTeacher = user?.role === "teacher"
 
-  const filteredStudents = mockStudents.filter((student) =>
-    student.name.toLowerCase().includes(searchQuery.toLowerCase()),
-  )
+  // Initialize selected class for teachers
+  useEffect(() => {
+    if (isTeacher && user?.assignedClass) {
+      setSelectedClass(user.assignedClass)
+    }
+  }, [isTeacher, user?.assignedClass])
+
+  // Fetch classes for admin
+  useEffect(() => {
+    if (user?.role === "admin") {
+      fetchClasses()
+    }
+  }, [user?.role])
+
+  // Fetch students when class or date changes
+  useEffect(() => {
+    if (selectedClass && selectedDate) {
+      fetchStudents()
+    }
+  }, [selectedClass, selectedDate])
+
+  // Fetch attendance when date or class changes (after students are loaded)
+  useEffect(() => {
+    if (selectedClass && selectedDate && students.length > 0 && viewMode === "mark") {
+      // Only skip if flag is set (from history edit)
+      if (skipFetchAttendanceRef.current) {
+        skipFetchAttendanceRef.current = false
+        return
+      }
+      console.log('useEffect triggered - fetching attendance', { selectedClass, selectedDate, studentsCount: students.length })
+      fetchAttendance()
+    }
+  }, [selectedClass, selectedDate, students.length, viewMode])
+
+  const fetchClasses = async () => {
+    try {
+      setIsLoading(true)
+      const response = await apiRequest('/academic/classes')
+      const data = await response.json()
+      
+      if (response.ok) {
+        setClasses(data.data?.classes || [])
+      }
+    } catch (err: any) {
+      console.error('Fetch classes error:', err)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const fetchStudents = async () => {
+    if (!selectedClass) return
+    
+    try {
+      setIsLoadingStudents(true)
+      const response = await apiRequest(`/attendance/students?className=${encodeURIComponent(selectedClass)}`)
+      const data = await response.json()
+      
+      if (response.ok) {
+        const studentsList = data.data?.students || []
+        setStudents(studentsList)
+        
+        // Initialize attendance with "absent" for new students only (don't overwrite existing)
+        setAttendance((prev) => {
+          const newAttendance = { ...prev }
+          studentsList.forEach((student: Student) => {
+            if (!(student.id in newAttendance)) {
+              newAttendance[student.id] = "absent"
+            }
+          })
+          return newAttendance
+        })
+      }
+    } catch (err: any) {
+      console.error('Fetch students error:', err)
+      setError(err.message || 'Failed to fetch students')
+    } finally {
+      setIsLoadingStudents(false)
+    }
+  }
+
+  const fetchAttendance = async () => {
+    if (!selectedClass || !selectedDate) return
+    
+    try {
+      const response = await apiRequest(`/attendance?className=${encodeURIComponent(selectedClass)}&date=${selectedDate}`)
+      const data = await response.json()
+      
+      if (response.ok) {
+        // Clear existing attendance and set new attendance for the selected date
+        const attendanceMap: Record<string, AttendanceStatus> = {}
+        
+        // First, initialize all students as absent
+        students.forEach((student) => {
+          attendanceMap[student.id] = "absent"
+        })
+        
+        // Then, update with fetched attendance
+        if (data.data?.attendance && Array.isArray(data.data.attendance)) {
+          data.data.attendance.forEach((item: any) => {
+            if (attendanceMap.hasOwnProperty(item.studentId)) {
+              attendanceMap[item.studentId] = item.status
+            }
+          })
+        }
+        
+        setAttendance(attendanceMap)
+      } else {
+        // If response not OK or no data, initialize all as absent
+        const attendanceMap: Record<string, AttendanceStatus> = {}
+        students.forEach((student) => {
+          attendanceMap[student.id] = "absent"
+        })
+        setAttendance(attendanceMap)
+      }
+    } catch (err: any) {
+      console.error('Fetch attendance error:', err)
+      // On error, initialize all as absent
+      const attendanceMap: Record<string, AttendanceStatus> = {}
+      students.forEach((student) => {
+        attendanceMap[student.id] = "absent"
+      })
+      setAttendance(attendanceMap)
+    }
+  }
+
+  const fetchAttendanceHistory = async () => {
+    if (!selectedClass) return
+    
+    try {
+      setIsLoadingHistory(true)
+      const response = await apiRequest(
+        `/attendance/history?className=${encodeURIComponent(selectedClass)}&startDate=${historyStartDate}&endDate=${historyEndDate}`
+      )
+      const data = await response.json()
+      
+      if (response.ok) {
+        setAttendanceHistory(data.data?.history || [])
+      }
+    } catch (err: any) {
+      console.error('Fetch attendance history error:', err)
+      setError(err.message || 'Failed to fetch attendance history')
+    } finally {
+      setIsLoadingHistory(false)
+    }
+  }
+
+  useEffect(() => {
+    if (viewMode === "history" && selectedClass && historyStartDate && historyEndDate) {
+      fetchAttendanceHistory()
+    }
+  }, [viewMode, selectedClass, historyStartDate, historyEndDate, students.length])
 
   const handleStatusChange = (studentId: string, status: AttendanceStatus) => {
     setAttendance((prev) => ({ ...prev, [studentId]: status }))
   }
 
-  const handleSave = () => {
-    alert("Attendance saved successfully!")
+  const handleSave = async () => {
+    if (!selectedClass || !selectedDate) {
+      setError("Please select a class and date")
+      return
+    }
+
+    if (students.length === 0) {
+      setError("No students found. Please wait for students to load.")
+      return
+    }
+
+    if (Object.keys(attendance).length === 0) {
+      setError("No attendance data to save. Please mark attendance for at least one student.")
+      return
+    }
+
+    try {
+      setIsSaving(true)
+      setError(null)
+      setSuccess(null)
+
+      // Filter to only include students that exist in the students list
+      const validStudentIds = new Set(students.map(s => s.id))
+      const attendanceArray = Object.entries(attendance)
+        .filter(([studentId]) => validStudentIds.has(studentId))
+        .map(([studentId, status]) => ({
+          studentId,
+          status,
+        }))
+
+      if (attendanceArray.length === 0) {
+        setError("No valid attendance data to save.")
+        setIsSaving(false)
+        return
+      }
+
+      console.log('Saving attendance:', {
+        className: selectedClass,
+        date: selectedDate,
+        count: attendanceArray.length,
+      })
+
+      const response = await apiRequest('/attendance/mark/bulk', {
+        method: 'POST',
+        body: JSON.stringify({
+          className: selectedClass,
+          date: selectedDate,
+          attendance: attendanceArray,
+        }),
+      })
+
+      let data: any = {}
+      try {
+        const text = await response.text()
+        if (text) {
+          data = JSON.parse(text)
+        }
+      } catch (parseError) {
+        console.error('Failed to parse response:', parseError)
+        throw new Error(`Server error: ${response.status} ${response.statusText}`)
+      }
+
+      if (!response.ok) {
+        console.error('Attendance save error response:', {
+          status: response.status,
+          statusText: response.statusText,
+          data,
+        })
+        const errorMessage = data.error?.message || data.message || `Failed to save attendance (${response.status})`
+        throw new Error(errorMessage)
+      }
+
+      setSuccess(`Attendance saved successfully for ${data.data?.marked || attendanceArray.length} students!`)
+      setTimeout(() => setSuccess(null), 3000)
+      
+      // Refresh attendance data
+      await fetchAttendance()
+    } catch (err: any) {
+      console.error('Save attendance error:', err)
+      setError(err.message || 'Failed to save attendance. Please try again.')
+    } finally {
+      setIsSaving(false)
+    }
   }
+
+  const filteredStudents = students.filter((student) =>
+    student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    student.rollNo.toLowerCase().includes(searchQuery.toLowerCase())
+  )
 
   const getStatusIcon = (status: AttendanceStatus) => {
     switch (status) {
@@ -334,13 +581,55 @@ export default function AttendancePage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">{t("attendance")}</h1>
-          <p className="text-muted-foreground">{t("markAttendance")}</p>
+          <p className="text-muted-foreground">
+            {viewMode === "mark" ? t("markAttendance") : "View Attendance History"}
+          </p>
         </div>
-        <Button onClick={handleSave}>
-          <Save className="h-4 w-4 mr-2" />
-          {t("save")}
-        </Button>
+        {viewMode === "mark" && (
+          <Button onClick={handleSave} disabled={isSaving || !selectedClass || students.length === 0}>
+            {isSaving ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                {t("save")}
+              </>
+            )}
+          </Button>
+        )}
       </div>
+
+      {/* Tabs for Mark/History */}
+      <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "mark" | "history")}>
+        <TabsList>
+          <TabsTrigger value="mark">
+            <ClipboardCheck className="h-4 w-4 mr-2" />
+            Mark Attendance
+          </TabsTrigger>
+          <TabsTrigger value="history">
+            <History className="h-4 w-4 mr-2" />
+            View History
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="mark" className="space-y-6">
+
+      {/* Error/Success Messages */}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {success && (
+        <Alert className="bg-success/10 border-success">
+          <CheckCircle className="h-4 w-4 text-success" />
+          <AlertDescription className="text-success">{success}</AlertDescription>
+        </Alert>
+      )}
 
       {/* Filters */}
       <Card>
@@ -348,21 +637,40 @@ export default function AttendancePage() {
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-2">
               <Label>{t("date")}</Label>
-              <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
+              <Input 
+                type="date" 
+                value={selectedDate} 
+                onChange={(e) => {
+                  const newDate = e.target.value
+                  setSelectedDate(newDate)
+                  // Clear attendance when date changes - it will be reloaded by useEffect
+                  setAttendance({})
+                  // Reset skip flag to allow fetching
+                  skipFetchAttendanceRef.current = false
+                }} 
+              />
+              <p className="text-xs text-muted-foreground">
+                Select a date to view/edit attendance for that day
+              </p>
             </div>
             <div className="space-y-2">
               <Label>{t("className")}</Label>
-              <Select value={selectedClass} onValueChange={setSelectedClass}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="grade-10-a">Grade 10-A</SelectItem>
-                  <SelectItem value="grade-10-b">Grade 10-B</SelectItem>
-                  <SelectItem value="grade-9-a">Grade 9-A</SelectItem>
-                  <SelectItem value="grade-9-b">Grade 9-B</SelectItem>
-                </SelectContent>
-              </Select>
+              {isTeacher ? (
+                <Input value={selectedClass || user?.assignedClass || ""} disabled />
+              ) : (
+                <Select value={selectedClass} onValueChange={setSelectedClass} disabled={isLoading}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select class" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {classes.map((cls) => (
+                      <SelectItem key={cls.id} value={cls.name}>
+                        {cls.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <div className="space-y-2">
               <Label>{t("search")}</Label>
@@ -422,91 +730,309 @@ export default function AttendancePage() {
         <CardHeader>
           <CardTitle>{t("markAttendance")}</CardTitle>
           <CardDescription>
-            {selectedDate} - Grade 10-A ({filteredStudents.length} students)
+            {selectedDate ? (
+              <>
+                {new Date(selectedDate).toLocaleDateString('en-US', { 
+                  weekday: 'long', 
+                  month: 'short', 
+                  day: 'numeric' 
+                })} - {selectedClass || "No class selected"} ({filteredStudents.length} students)
+              </>
+            ) : (
+              "Please select a date and class"
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Roll No</th>
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Name</th>
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("status")}</th>
-                  <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("actions")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredStudents.map((student) => (
-                  <tr key={student.id} className="border-b border-border last:border-0">
-                    <td className="py-3 px-2 text-sm text-muted-foreground">{student.rollNo}</td>
-                    <td className="py-3 px-2">
-                      <div className="flex items-center gap-3">
-                        <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-sm font-medium">
-                          {student.name.charAt(0)}
-                        </div>
-                        <span className="text-sm text-foreground">{student.name}</span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-2">
-                      <div className="flex items-center gap-2">
-                        {getStatusIcon(attendance[student.id])}
-                        <Badge
-                          variant={
-                            attendance[student.id] === "present"
-                              ? "default"
-                              : attendance[student.id] === "absent"
-                                ? "destructive"
-                                : "secondary"
-                          }
-                          className={attendance[student.id] === "present" ? "bg-success hover:bg-success/80" : ""}
-                        >
-                          {t(attendance[student.id])}
-                        </Badge>
-                      </div>
-                    </td>
-                    <td className="py-3 px-2">
-                      <div className="flex gap-1">
-                        <Button
-                          size="sm"
-                          variant={attendance[student.id] === "present" ? "default" : "outline"}
-                          className={
-                            attendance[student.id] === "present"
-                              ? "bg-success hover:bg-success/80 text-success-foreground"
-                              : ""
-                          }
-                          onClick={() => handleStatusChange(student.id, "present")}
-                        >
-                          P
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant={attendance[student.id] === "absent" ? "destructive" : "outline"}
-                          onClick={() => handleStatusChange(student.id, "absent")}
-                        >
-                          A
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant={attendance[student.id] === "late" ? "default" : "outline"}
-                          className={
-                            attendance[student.id] === "late"
-                              ? "bg-warning hover:bg-warning/80 text-warning-foreground"
-                              : ""
-                          }
-                          onClick={() => handleStatusChange(student.id, "late")}
-                        >
-                          L
-                        </Button>
-                      </div>
-                    </td>
+          {isLoadingStudents ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : !selectedClass ? (
+            <div className="text-center py-12 text-muted-foreground">
+              Please select a class to mark attendance
+            </div>
+          ) : filteredStudents.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              No students found in this class
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Roll No</th>
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Name</th>
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("status")}</th>
+                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("actions")}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {filteredStudents.map((student) => {
+                    const status = attendance[student.id] || "absent"
+                    return (
+                      <tr key={student.id} className="border-b border-border last:border-0">
+                        <td className="py-3 px-2 text-sm text-muted-foreground">{student.rollNo}</td>
+                        <td className="py-3 px-2">
+                          <div className="flex items-center gap-3">
+                            <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-sm font-medium">
+                              {student.name.charAt(0)}
+                            </div>
+                            <span className="text-sm text-foreground">{student.name}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-2">
+                          <div className="flex items-center gap-2">
+                            {getStatusIcon(status)}
+                            <Badge
+                              variant={
+                                status === "present"
+                                  ? "default"
+                                  : status === "absent"
+                                    ? "destructive"
+                                    : "secondary"
+                              }
+                              className={status === "present" ? "bg-success hover:bg-success/80" : status === "late" ? "bg-warning hover:bg-warning/80 text-warning-foreground" : ""}
+                            >
+                              {t(status)}
+                            </Badge>
+                          </div>
+                        </td>
+                        <td className="py-3 px-2">
+                          <div className="flex gap-1">
+                            <Button
+                              size="sm"
+                              variant={status === "present" ? "default" : "outline"}
+                              className={
+                                status === "present"
+                                  ? "bg-success hover:bg-success/80 text-success-foreground"
+                                  : ""
+                              }
+                              onClick={() => handleStatusChange(student.id, "present")}
+                            >
+                              P
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant={status === "absent" ? "destructive" : "outline"}
+                              onClick={() => handleStatusChange(student.id, "absent")}
+                            >
+                              A
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant={status === "late" ? "default" : "outline"}
+                              className={
+                                status === "late"
+                                  ? "bg-warning hover:bg-warning/80 text-warning-foreground"
+                                  : ""
+                              }
+                              onClick={() => handleStatusChange(student.id, "late")}
+                            >
+                              L
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
+        </TabsContent>
+
+        <TabsContent value="history" className="space-y-6">
+          {/* History Filters */}
+          <Card>
+            <CardContent className="pt-6">
+              <div className="grid gap-4 sm:grid-cols-4">
+                <div className="space-y-2">
+                  <Label>Class</Label>
+                  {isTeacher ? (
+                    <Input value={selectedClass || user?.assignedClass || ""} disabled />
+                  ) : (
+                    <Select value={selectedClass} onValueChange={setSelectedClass} disabled={isLoading}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select class" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {classes.map((cls) => (
+                          <SelectItem key={cls.id} value={cls.name}>
+                            {cls.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label>Start Date</Label>
+                  <Input
+                    type="date"
+                    value={historyStartDate}
+                    onChange={(e) => setHistoryStartDate(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>End Date</Label>
+                  <Input
+                    type="date"
+                    value={historyEndDate}
+                    onChange={(e) => setHistoryEndDate(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>&nbsp;</Label>
+                  <Button onClick={fetchAttendanceHistory} disabled={isLoadingHistory || !selectedClass}>
+                    {isLoadingHistory ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      <>
+                        <Search className="h-4 w-4 mr-2" />
+                        Search
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Attendance History */}
+          {isLoadingHistory ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : attendanceHistory.length === 0 ? (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-center py-12 text-muted-foreground">
+                  No attendance records found for the selected date range.
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {attendanceHistory.map((dayRecord) => {
+                const date = new Date(dayRecord.date)
+                const dayName = date.toLocaleDateString('en-US', { weekday: 'long' })
+                
+                return (
+                  <Card key={dayRecord.date}>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle>{dayName}</CardTitle>
+                          <CardDescription>{dayRecord.date}</CardDescription>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <Badge className="bg-success">{dayRecord.present} Present</Badge>
+                          <Badge variant="destructive">{dayRecord.absent} Absent</Badge>
+                          <Badge className="bg-warning text-warning-foreground">{dayRecord.late} Late</Badge>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={async () => {
+                              // Set flag to skip automatic fetch (prevents overwriting our pre-populated data)
+                              skipFetchAttendanceRef.current = true
+                              
+                              // Set the date first
+                              setSelectedDate(dayRecord.date)
+                              
+                              // Pre-populate attendance from history data
+                              const attendanceMap: Record<string, AttendanceStatus> = {}
+                              
+                              // First, initialize all students as absent (if students are already loaded)
+                              if (students.length > 0) {
+                                students.forEach((student) => {
+                                  attendanceMap[student.id] = "absent"
+                                })
+                              }
+                              
+                              // Then, update with history data
+                              dayRecord.records.forEach((record: any) => {
+                                attendanceMap[record.studentId] = record.status
+                              })
+                              
+                              // Set attendance before switching mode
+                              setAttendance(attendanceMap)
+                              
+                              // Switch to mark mode
+                              setViewMode("mark")
+                              
+                              // If students aren't loaded yet, wait for them and update attendance
+                              if (students.length === 0) {
+                                // Wait for students to load, then merge attendance
+                                const checkInterval = setInterval(() => {
+                                  if (students.length > 0) {
+                                    // Rebuild attendance map with all students
+                                    const fullAttendanceMap: Record<string, AttendanceStatus> = {}
+                                    students.forEach((student) => {
+                                      // Use existing attendance if available, otherwise absent
+                                      fullAttendanceMap[student.id] = attendanceMap[student.id] || "absent"
+                                    })
+                                    setAttendance(fullAttendanceMap)
+                                    clearInterval(checkInterval)
+                                  }
+                                }, 100)
+                                
+                                // Clear interval after 5 seconds to prevent infinite loop
+                                setTimeout(() => clearInterval(checkInterval), 5000)
+                              }
+                            }}
+                          >
+                            <Edit className="h-4 w-4 mr-2" />
+                            Edit
+                          </Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="border-b border-border">
+                              <th className="text-left py-2 px-2 text-sm font-medium text-muted-foreground">Roll No</th>
+                              <th className="text-left py-2 px-2 text-sm font-medium text-muted-foreground">Student Name</th>
+                              <th className="text-left py-2 px-2 text-sm font-medium text-muted-foreground">Status</th>
+                              <th className="text-left py-2 px-2 text-sm font-medium text-muted-foreground">Marked By</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {dayRecord.records.map((record: any) => (
+                              <tr key={record.id} className="border-b border-border last:border-0">
+                                <td className="py-2 px-2 text-sm text-muted-foreground">
+                                  {students.find(s => s.id === record.studentId)?.rollNo || "N/A"}
+                                </td>
+                                <td className="py-2 px-2 text-sm text-foreground">{record.studentName}</td>
+                                <td className="py-2 px-2">
+                                  <div className="flex items-center gap-2">
+                                    {getStatusIcon(record.status)}
+                                    {getStatusBadge(record.status)}
+                                  </div>
+                                </td>
+                                <td className="py-2 px-2 text-sm text-muted-foreground">
+                                  {record.markedBy} • {new Date(record.markedAt).toLocaleString()}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

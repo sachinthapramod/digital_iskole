@@ -589,6 +589,8 @@ export class UsersService {
         rollNo: studentData.admissionNumber,
         class: studentData.className,
         parent: studentData.parentName,
+        parentPhone: studentData.parentPhone,
+        parentEmail: studentData.parentEmail,
         status: studentData.status,
       };
     } catch (error: any) {

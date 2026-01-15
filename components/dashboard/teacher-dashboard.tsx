@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -7,6 +8,7 @@ import { Progress } from "@/components/ui/progress"
 import { StatsCard } from "@/components/dashboard/stats-card"
 import { useLanguage } from "@/lib/i18n/context"
 import { useAuth } from "@/lib/auth/context"
+import { apiRequest } from "@/lib/api/client"
 import {
   Users,
   ClipboardCheck,
@@ -19,17 +21,9 @@ import {
   TrendingDown,
   Megaphone,
   AlertCircle,
+  Loader2,
 } from "lucide-react"
 import Link from "next/link"
-
-// Mock data
-const classStudents = [
-  { id: 1, name: "Kasun Perera", attendance: "present" },
-  { id: 2, name: "Nimali Silva", attendance: "present" },
-  { id: 3, name: "Amal Fernando", attendance: "absent" },
-  { id: 4, name: "Sithara Jayawardena", attendance: "late" },
-  { id: 5, name: "Dinesh Kumar", attendance: "present" },
-]
 
 const progressStats = {
   classAverage: 72.5,
@@ -86,9 +80,64 @@ const notices = [
   },
 ]
 
+interface Student {
+  id: string
+  name: string
+  rollNo: string
+  attendance?: "present" | "absent" | "late"
+}
+
 export function TeacherDashboard() {
   const { t } = useLanguage()
   const { user } = useAuth()
+  const [classStudents, setClassStudents] = useState<Student[]>([])
+  const [isLoadingStudents, setIsLoadingStudents] = useState(true)
+  const [todayAttendance, setTodayAttendance] = useState<Record<string, "present" | "absent" | "late">>({})
+  
+  useEffect(() => {
+    if (user?.assignedClass) {
+      fetchClassStudents()
+      fetchTodayAttendance()
+    }
+  }, [user?.assignedClass])
+
+  const fetchClassStudents = async () => {
+    if (!user?.assignedClass) return
+    
+    try {
+      setIsLoadingStudents(true)
+      const response = await apiRequest(`/attendance/students?className=${encodeURIComponent(user.assignedClass)}`)
+      const data = await response.json()
+      
+      if (response.ok) {
+        setClassStudents(data.data?.students || [])
+      }
+    } catch (err: any) {
+      console.error('Fetch class students error:', err)
+    } finally {
+      setIsLoadingStudents(false)
+    }
+  }
+
+  const fetchTodayAttendance = async () => {
+    if (!user?.assignedClass) return
+    
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      const response = await apiRequest(`/attendance?className=${encodeURIComponent(user.assignedClass)}&date=${today}`)
+      const data = await response.json()
+      
+      if (response.ok) {
+        const attendanceMap: Record<string, "present" | "absent" | "late"> = {}
+        data.data?.attendance?.forEach((item: any) => {
+          attendanceMap[item.studentId] = item.status
+        })
+        setTodayAttendance(attendanceMap)
+      }
+    } catch (err: any) {
+      console.error('Fetch today attendance error:', err)
+    }
+  }
 
   const getAttendanceIcon = (status: string) => {
     switch (status) {
@@ -160,8 +209,26 @@ export function TeacherDashboard() {
 
       {/* Stats Grid */}
       <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
-        <StatsCard title="Class Students" value="32" icon={Users} description={user?.assignedClass || "Grade 10-A"} />
-        <StatsCard title={t("todayAttendance")} value="28/32" icon={ClipboardCheck} description="87.5% present" />
+        <StatsCard 
+          title="Class Students" 
+          value={isLoadingStudents ? "..." : classStudents.length.toString()} 
+          icon={Users} 
+          description={user?.assignedClass || "Grade 10-A"} 
+        />
+        <StatsCard 
+          title={t("todayAttendance")} 
+          value={
+            isLoadingStudents 
+              ? "..." 
+              : `${Object.values(todayAttendance).filter(s => s === "present").length}/${classStudents.length}`
+          } 
+          icon={ClipboardCheck} 
+          description={
+            isLoadingStudents || classStudents.length === 0
+              ? "Loading..."
+              : `${Math.round((Object.values(todayAttendance).filter(s => s === "present").length / classStudents.length) * 100)}% present`
+          } 
+        />
         <StatsCard title="Class Average" value="72.5%" icon={TrendingUp} description="+4.3% from last term" />
         <StatsCard title={t("appointments")} value="2" icon={Calendar} description="Scheduled today" />
       </div>
@@ -269,26 +336,48 @@ export function TeacherDashboard() {
             </Button>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2 sm:space-y-3">
-              {classStudents.map((student) => (
-                <div key={student.id} className="flex items-center justify-between py-1.5 sm:py-2">
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-muted flex items-center justify-center text-xs sm:text-sm font-medium">
-                      {student.name.charAt(0)}
+            {isLoadingStudents ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : classStudents.length === 0 ? (
+              <div className="text-center py-8 text-sm text-muted-foreground">
+                No students found in this class
+              </div>
+            ) : (
+              <div className="space-y-2 sm:space-y-3">
+                {classStudents.slice(0, 5).map((student) => {
+                  const attendanceStatus = todayAttendance[student.id] || "absent"
+                  return (
+                    <div key={student.id} className="flex items-center justify-between py-1.5 sm:py-2">
+                      <div className="flex items-center gap-2 sm:gap-3">
+                        <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-muted flex items-center justify-center text-xs sm:text-sm font-medium">
+                          {student.name.charAt(0)}
+                        </div>
+                        <span className="text-xs sm:text-sm text-foreground truncate max-w-[120px] sm:max-w-none">
+                          {student.name}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 sm:gap-2">
+                        {getAttendanceIcon(attendanceStatus)}
+                        <span className="text-xs text-muted-foreground capitalize hidden sm:inline">
+                          {attendanceStatus}
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-xs sm:text-sm text-foreground truncate max-w-[120px] sm:max-w-none">
-                      {student.name}
-                    </span>
+                  )
+                })}
+                {classStudents.length > 5 && (
+                  <div className="text-center pt-2">
+                    <Button variant="ghost" size="sm" asChild>
+                      <Link href="/dashboard/attendance">
+                        View All {classStudents.length} Students <ArrowRight className="ml-1 h-4 w-4" />
+                      </Link>
+                    </Button>
                   </div>
-                  <div className="flex items-center gap-1.5 sm:gap-2">
-                    {getAttendanceIcon(student.attendance)}
-                    <span className="text-xs text-muted-foreground capitalize hidden sm:inline">
-                      {student.attendance}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
 

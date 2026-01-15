@@ -1,42 +1,29 @@
 import { Router } from 'express';
 import { authenticateToken } from '../middleware/auth.middleware';
-import { requireAdmin, requireTeacher, requireAdminOrTeacher } from '../middleware/role.middleware';
+import { requireTeacher, requireAdminOrTeacher } from '../middleware/role.middleware';
+import attendanceController from '../controllers/attendance.controller';
 
 const router = Router();
 
 router.use(authenticateToken);
 
-router.get('/', requireAdminOrTeacher, (_req, res) => {
-  res.json({ message: 'Get attendance - to be implemented' });
-});
+// Get students by class (for teachers to see their class students)
+router.get('/students', requireAdminOrTeacher, attendanceController.getStudentsByClass.bind(attendanceController));
 
-router.post('/mark', requireTeacher, (_req, res) => {
-  res.json({ message: 'Mark attendance - to be implemented' });
-});
+// Get attendance by class and date
+router.get('/', requireAdminOrTeacher, attendanceController.getAttendanceByClassAndDate.bind(attendanceController));
 
-router.put('/:studentId', requireTeacher, (_req, res) => {
-  res.json({ message: 'Update attendance - to be implemented' });
-});
+// Mark single attendance
+router.post('/mark', requireTeacher, attendanceController.markAttendance.bind(attendanceController));
 
-router.get('/student/:id', authenticateToken, (_req, res) => {
-  res.json({ message: 'Student attendance - to be implemented' });
-});
+// Mark bulk attendance (for marking entire class at once)
+router.post('/mark/bulk', requireTeacher, attendanceController.markBulkAttendance.bind(attendanceController));
 
-router.get('/student/:id/stats', authenticateToken, (_req, res) => {
-  res.json({ message: 'Student attendance stats - to be implemented' });
-});
+// Get student attendance stats
+router.get('/student/:studentId/stats', authenticateToken, attendanceController.getAttendanceStats.bind(attendanceController));
 
-router.get('/class/:id/summary', requireAdminOrTeacher, (_req, res) => {
-  res.json({ message: 'Class attendance summary - to be implemented' });
-});
-
-router.get('/reports/daily', requireAdmin, (_req, res) => {
-  res.json({ message: 'Daily attendance report - to be implemented' });
-});
-
-router.get('/reports/monthly', requireAdminOrTeacher, (_req, res) => {
-  res.json({ message: 'Monthly attendance report - to be implemented' });
-});
+// Get attendance history for a date range
+router.get('/history', requireAdminOrTeacher, attendanceController.getAttendanceHistory.bind(attendanceController));
 
 export default router;
 
