@@ -207,8 +207,17 @@ export default function AttendancePage() {
     if (!selectedClass || !selectedDate) return
     
     try {
+      console.log('Fetching attendance for:', { selectedClass, selectedDate, studentsCount: students.length })
       const response = await apiRequest(`/attendance?className=${encodeURIComponent(selectedClass)}&date=${selectedDate}`)
       const data = await response.json()
+      
+      console.log('Attendance API response:', { 
+        ok: response.ok, 
+        status: response.status,
+        hasData: !!data.data,
+        attendanceCount: data.data?.attendance?.length || 0,
+        attendance: data.data?.attendance 
+      })
       
       if (response.ok) {
         // Clear existing attendance and set new attendance for the selected date
@@ -220,16 +229,25 @@ export default function AttendancePage() {
         })
         
         // Then, update with fetched attendance
-        if (data.data?.attendance && Array.isArray(data.data.attendance)) {
+        if (data.data?.attendance && Array.isArray(data.data.attendance) && data.data.attendance.length > 0) {
+          console.log('Updating attendance with', data.data.attendance.length, 'records')
           data.data.attendance.forEach((item: any) => {
-            if (attendanceMap.hasOwnProperty(item.studentId)) {
+            console.log('Processing attendance item:', item)
+            if (item.studentId && attendanceMap.hasOwnProperty(item.studentId)) {
               attendanceMap[item.studentId] = item.status
+              console.log(`Set student ${item.studentId} to ${item.status}`)
+            } else {
+              console.warn('Student ID not found in map:', item.studentId, 'Available IDs:', Object.keys(attendanceMap))
             }
           })
+        } else {
+          console.log('No attendance data found for this date, all students will be marked as absent')
         }
         
+        console.log('Final attendance map:', attendanceMap)
         setAttendance(attendanceMap)
       } else {
+        console.error('Response not OK:', data)
         // If response not OK or no data, initialize all as absent
         const attendanceMap: Record<string, AttendanceStatus> = {}
         students.forEach((student) => {

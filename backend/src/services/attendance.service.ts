@@ -43,21 +43,26 @@ export class AttendanceService {
       dateObj.setHours(23, 59, 59, 999);
       const endOfDay = Timestamp.fromDate(dateObj);
       
+      // Query by className only (avoids composite index requirement), then filter by date in memory
       const attendanceSnapshot = await db.collection('attendance')
         .where('className', '==', className)
-        .where('date', '>=', startOfDay)
-        .where('date', '<=', endOfDay)
         .get();
       
       const attendance: any[] = [];
       
+      // Filter by date range in memory
       for (const doc of attendanceSnapshot.docs) {
         const attendanceData = doc.data() as Attendance;
-        attendance.push({
-          id: doc.id,
-          studentId: attendanceData.studentId,
-          status: attendanceData.status,
-        });
+        const docDate = attendanceData.date as Timestamp;
+        
+        // Check if the date is within our target date range
+        if (docDate && docDate >= startOfDay && docDate <= endOfDay) {
+          attendance.push({
+            id: doc.id,
+            studentId: attendanceData.studentId,
+            status: attendanceData.status,
+          });
+        }
       }
       
       return attendance;
