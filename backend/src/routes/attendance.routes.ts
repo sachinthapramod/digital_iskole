@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticateToken } from '../middleware/auth.middleware';
-import { requireTeacher, requireAdminOrTeacher } from '../middleware/role.middleware';
+import { requireAdminOrTeacher } from '../middleware/role.middleware';
 import attendanceController from '../controllers/attendance.controller';
 
 const router = Router();
@@ -13,11 +13,11 @@ router.get('/students', requireAdminOrTeacher, attendanceController.getStudentsB
 // Get attendance by class and date
 router.get('/', requireAdminOrTeacher, attendanceController.getAttendanceByClassAndDate.bind(attendanceController));
 
-// Mark single attendance
-router.post('/mark', requireTeacher, attendanceController.markAttendance.bind(attendanceController));
+// Mark single attendance (admin and teachers can mark)
+router.post('/mark', requireAdminOrTeacher, attendanceController.markAttendance.bind(attendanceController));
 
-// Mark bulk attendance (for marking entire class at once)
-router.post('/mark/bulk', requireTeacher, attendanceController.markBulkAttendance.bind(attendanceController));
+// Mark bulk attendance (for marking entire class at once) - admin and teachers can mark
+router.post('/mark/bulk', requireAdminOrTeacher, attendanceController.markBulkAttendance.bind(attendanceController));
 
 // Get student attendance stats
 router.get('/student/:studentId/stats', authenticateToken, attendanceController.getAttendanceStats.bind(attendanceController));
