@@ -1,35 +1,33 @@
 import { Router } from 'express';
 import { authenticateToken } from '../middleware/auth.middleware';
-import { requireAdminOrTeacher } from '../middleware/role.middleware';
+import { requireAdmin, requireAdminOrTeacher } from '../middleware/role.middleware';
+import examsController from '../controllers/exams.controller';
 
 const router = Router();
 
 router.use(authenticateToken);
 
-router.get('/', authenticateToken, (_req, res) => {
-  res.json({ message: 'Exams list - to be implemented' });
-});
+// Get all exams
+router.get('/', authenticateToken, examsController.getExams.bind(examsController));
 
-router.post('/', requireAdminOrTeacher, (_req, res) => {
-  res.json({ message: 'Create exam - to be implemented' });
-});
+// Create exam (admin only)
+router.post('/', requireAdmin, examsController.createExam.bind(examsController));
 
-router.get('/:id', authenticateToken, (_req, res) => {
-  res.json({ message: 'Get exam - to be implemented' });
-});
+// Get single exam
+router.get('/:id', authenticateToken, examsController.getExam.bind(examsController));
 
-router.put('/:id', requireAdminOrTeacher, (_req, res) => {
-  res.json({ message: 'Update exam - to be implemented' });
-});
+// Update exam (admin only)
+router.put('/:id', requireAdmin, examsController.updateExam.bind(examsController));
 
-router.delete('/:id', requireAdminOrTeacher, (_req, res) => {
-  res.json({ message: 'Delete exam - to be implemented' });
-});
+// Delete exam (admin only)
+router.delete('/:id', requireAdmin, examsController.deleteExam.bind(examsController));
 
+// Get upcoming exams
 router.get('/upcoming', authenticateToken, (_req, res) => {
   res.json({ message: 'Upcoming exams - to be implemented' });
 });
 
+// Get exam results
 router.get('/:id/results', requireAdminOrTeacher, (_req, res) => {
   res.json({ message: 'Exam results - to be implemented' });
 });

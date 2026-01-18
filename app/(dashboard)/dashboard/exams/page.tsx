@@ -1,12 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Dialog,
   DialogContent,
@@ -17,69 +18,248 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { useLanguage } from "@/lib/i18n/context"
-import { Plus, Calendar, Clock, BookOpen } from "lucide-react"
+import { useAuth } from "@/lib/auth/context"
+import { apiRequest } from "@/lib/api/client"
+import { Plus, Calendar, Clock, BookOpen, Loader2, AlertCircle, Edit, Trash2 } from "lucide-react"
 
-// Mock data
-const mockExams = [
-  {
-    id: "1",
-    name: "First Term Examination 2024",
-    type: "firstTerm",
-    startDate: "2024-04-15",
-    endDate: "2024-04-25",
-    grades: ["Grade 9", "Grade 10", "Grade 11"],
-    status: "completed",
-  },
-  {
-    id: "2",
-    name: "Second Term Examination 2024",
-    type: "secondTerm",
-    startDate: "2024-08-15",
-    endDate: "2024-08-25",
-    grades: ["All Grades"],
-    status: "completed",
-  },
-  {
-    id: "3",
-    name: "Third Term Examination 2024",
-    type: "thirdTerm",
-    startDate: "2024-12-20",
-    endDate: "2025-01-05",
-    grades: ["All Grades"],
-    status: "upcoming",
-  },
-  {
-    id: "4",
-    name: "Monthly Test - November",
-    type: "monthlyTest",
-    startDate: "2024-11-20",
-    endDate: "2024-11-20",
-    grades: ["Grade 10"],
-    status: "ongoing",
-  },
-  {
-    id: "5",
-    name: "Science Quiz - Term 2",
-    type: "quiz",
-    startDate: "2024-12-10",
-    endDate: "2024-12-10",
-    grades: ["Grade 8", "Grade 9"],
-    status: "upcoming",
-  },
-  {
-    id: "6",
-    name: "Mathematics Assignment",
-    type: "assignment",
-    startDate: "2024-12-05",
-    endDate: "2024-12-15",
-    grades: ["Grade 10"],
-    status: "ongoing",
-  },
-]
+interface Exam {
+  id: string
+  name: string
+  type: string
+  startDate: string
+  endDate: string
+  grades: string[]
+  status: "upcoming" | "ongoing" | "completed"
+}
 
 export default function ExamsPage() {
   const { t } = useLanguage()
+  const { user } = useAuth()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [exams, setExams] = useState<Exam[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [editingExam, setEditingExam] = useState<Exam | null>(null)
+  const [newExam, setNewExam] = useState({
+    name: "",
+    type: "",
+    startDate: "",
+    endDate: "",
+    grades: [] as string[],
+  })
+  const [selectedGrade, setSelectedGrade] = useState("")
+
+  const isAdmin = user?.role === "admin"
+
+  // Static list of grades from 6 to 13
+  const availableGrades = Array.from({ length: 8 }, (_, i) => `Grade ${i + 6}`)
+
+  useEffect(() => {
+    fetchExams()
+  }, [])
+
+  const fetchExams = async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      const response = await apiRequest('/exams')
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to fetch exams')
+      }
+
+      // Map backend types to frontend types
+      const mappedExams = (data.data?.exams || []).map((exam: any) => ({
+        ...exam,
+        type: mapExamTypeToFrontend(exam.type),
+      }))
+
+      setExams(mappedExams)
+    } catch (err: any) {
+      console.error('Fetch exams error:', err)
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to load exams')
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+
+  // Map backend exam type to frontend format
+  const mapExamTypeToFrontend = (type: string): string => {
+    const mapping: Record<string, string> = {
+      'first-term': 'firstTerm',
+      'second-term': 'secondTerm',
+      'third-term': 'thirdTerm',
+      'monthly-test': 'monthlyTest',
+      'quiz': 'quiz',
+      'assignment': 'assignment',
+    }
+    return mapping[type] || type
+  }
+
+  // Map frontend exam type to backend format
+  const mapExamTypeToBackend = (type: string): string => {
+    const mapping: Record<string, string> = {
+      'firstTerm': 'first-term',
+      'secondTerm': 'second-term',
+      'thirdTerm': 'third-term',
+      'monthlyTest': 'monthly-test',
+      'quiz': 'quiz',
+      'assignment': 'assignment',
+    }
+    return mapping[type] || type
+  }
+
+  const handleAddExam = async () => {
+    if (!newExam.name || !newExam.type || !newExam.startDate || !newExam.endDate) {
+      setError("Please fill in all required fields")
+      return
+    }
+
+    try {
+      setIsSaving(true)
+      setError(null)
+      setSuccess(null)
+
+      const grades = selectedGrade === "all" 
+        ? ["All Grades"] 
+        : selectedGrade 
+          ? [selectedGrade] 
+          : []
+
+      const response = await apiRequest('/exams', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: newExam.name,
+          type: mapExamTypeToBackend(newExam.type),
+          startDate: newExam.startDate,
+          endDate: newExam.endDate,
+          grades,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to create exam')
+      }
+
+      setSuccess("Exam created successfully!")
+      setDialogOpen(false)
+      setNewExam({ name: "", type: "", startDate: "", endDate: "", grades: [] })
+      setSelectedGrade("")
+      await fetchExams()
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (err: any) {
+      console.error('Create exam error:', err)
+      setError(err.message || 'Failed to create exam')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleEditExam = (exam: Exam) => {
+    setEditingExam(exam)
+    setNewExam({
+      name: exam.name,
+      type: exam.type,
+      startDate: exam.startDate,
+      endDate: exam.endDate,
+      grades: exam.grades,
+    })
+    setSelectedGrade(exam.grades.length > 0 ? exam.grades[0] : "")
+    setEditDialogOpen(true)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingExam || !newExam.name || !newExam.type || !newExam.startDate || !newExam.endDate) {
+      setError("Please fill in all required fields")
+      return
+    }
+
+    try {
+      setIsSaving(true)
+      setError(null)
+      setSuccess(null)
+
+      const grades = selectedGrade === "all" 
+        ? ["All Grades"] 
+        : selectedGrade 
+          ? [selectedGrade] 
+          : []
+
+      const response = await apiRequest(`/exams/${editingExam.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: newExam.name,
+          type: mapExamTypeToBackend(newExam.type),
+          startDate: newExam.startDate,
+          endDate: newExam.endDate,
+          grades,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to update exam')
+      }
+
+      setSuccess("Exam updated successfully!")
+      setEditDialogOpen(false)
+      setEditingExam(null)
+      setNewExam({ name: "", type: "", startDate: "", endDate: "", grades: [] })
+      setSelectedGrade("")
+      await fetchExams()
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (err: any) {
+      console.error('Update exam error:', err)
+      setError(err.message || 'Failed to update exam')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleDeleteExam = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this exam?")) {
+      return
+    }
+
+    try {
+      setIsDeleting(id)
+      setError(null)
+
+      const response = await apiRequest(`/exams/${id}`, {
+        method: 'DELETE',
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to delete exam')
+      }
+
+      setSuccess("Exam deleted successfully!")
+      await fetchExams()
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (err: any) {
+      console.error('Delete exam error:', err)
+      setError(err.message || 'Failed to delete exam')
+    } finally {
+      setIsDeleting(null)
+    }
+  }
+
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -113,6 +293,24 @@ export default function ExamsPage() {
     }
   }
 
+  if (!isAdmin) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">{t("exams")}</h1>
+          <p className="text-muted-foreground">View examinations and assessments</p>
+        </div>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center py-12 text-muted-foreground">
+              You don't have permission to manage exams. Only administrators can create and edit exams.
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -136,11 +334,15 @@ export default function ExamsPage() {
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label>{t("examName")}</Label>
-                <Input placeholder="e.g., First Term Examination 2024" />
+                <Input 
+                  placeholder="e.g., First Term Examination 2024" 
+                  value={newExam.name}
+                  onChange={(e) => setNewExam({ ...newExam, name: e.target.value })}
+                />
               </div>
               <div className="space-y-2">
                 <Label>{t("examType")}</Label>
-                <Select>
+                <Select value={newExam.type} onValueChange={(value) => setNewExam({ ...newExam, type: value })}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select type" />
                   </SelectTrigger>
@@ -157,37 +359,72 @@ export default function ExamsPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Start Date</Label>
-                  <Input type="date" />
+                  <Input 
+                    type="date" 
+                    value={newExam.startDate}
+                    onChange={(e) => setNewExam({ ...newExam, startDate: e.target.value })}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>End Date</Label>
-                  <Input type="date" />
+                  <Input 
+                    type="date" 
+                    value={newExam.endDate}
+                    onChange={(e) => setNewExam({ ...newExam, endDate: e.target.value })}
+                  />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label>Applicable Grades</Label>
-                <Select>
+                <Select value={selectedGrade} onValueChange={setSelectedGrade}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select grades" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Grades</SelectItem>
-                    <SelectItem value="grade-10">Grade 10</SelectItem>
-                    <SelectItem value="grade-9">Grade 9</SelectItem>
-                    <SelectItem value="grade-8">Grade 8</SelectItem>
+                    {availableGrades.map((grade) => (
+                      <SelectItem key={grade} value={grade}>{grade}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              <Button variant="outline" onClick={() => {
+                setDialogOpen(false)
+                setNewExam({ name: "", type: "", startDate: "", endDate: "", grades: [] })
+                setSelectedGrade("")
+              }}>
                 {t("cancel")}
               </Button>
-              <Button>{t("add")}</Button>
+              <Button onClick={handleAddExam} disabled={isSaving}>
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  t("add")
+                )}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* Error/Success Messages */}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {success && (
+        <Alert className="bg-success/10 border-success">
+          <AlertCircle className="h-4 w-4 text-success" />
+          <AlertDescription className="text-success">{success}</AlertDescription>
+        </Alert>
+      )}
 
       {/* Stats */}
       <div className="grid gap-4 sm:grid-cols-3">
@@ -197,7 +434,7 @@ export default function ExamsPage() {
               <div>
                 <p className="text-sm text-muted-foreground">{t("upcomingExams")}</p>
                 <p className="text-2xl font-bold text-foreground">
-                  {mockExams.filter((e) => e.status === "upcoming").length}
+                  {exams.filter((e) => e.status === "upcoming").length}
                 </p>
               </div>
               <Calendar className="h-8 w-8 text-primary/50" />
@@ -210,7 +447,7 @@ export default function ExamsPage() {
               <div>
                 <p className="text-sm text-muted-foreground">Ongoing</p>
                 <p className="text-2xl font-bold text-warning">
-                  {mockExams.filter((e) => e.status === "ongoing").length}
+                  {exams.filter((e) => e.status === "ongoing").length}
                 </p>
               </div>
               <Clock className="h-8 w-8 text-warning/50" />
@@ -223,7 +460,7 @@ export default function ExamsPage() {
               <div>
                 <p className="text-sm text-muted-foreground">Completed</p>
                 <p className="text-2xl font-bold text-foreground">
-                  {mockExams.filter((e) => e.status === "completed").length}
+                  {exams.filter((e) => e.status === "completed").length}
                 </p>
               </div>
               <BookOpen className="h-8 w-8 text-muted-foreground/50" />
@@ -239,39 +476,156 @@ export default function ExamsPage() {
           <CardDescription>View and manage all scheduled examinations</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {mockExams.map((exam) => (
-              <div key={exam.id} className="flex items-center justify-between p-4 rounded-lg border border-border">
-                <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
-                    <BookOpen className="h-6 w-6 text-primary" />
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : exams.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              No exams found. Create your first exam to get started.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {exams.map((exam) => (
+                <div key={exam.id} className="flex items-center justify-between p-4 rounded-lg border border-border">
+                  <div className="flex items-center gap-4">
+                    <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
+                      <BookOpen className="h-6 w-6 text-primary" />
+                    </div>
+                    <div>
+                      <h3 className="font-medium text-foreground">{exam.name}</h3>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Calendar className="h-3 w-3 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">
+                          {exam.startDate} {exam.startDate !== exam.endDate && `- ${exam.endDate}`}
+                        </span>
+                      </div>
+                      <div className="flex gap-1 mt-2">
+                        {exam.grades.map((grade, idx) => (
+                          <Badge key={idx} variant="outline" className="text-xs">
+                            {grade}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-medium text-foreground">{exam.name}</h3>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Calendar className="h-3 w-3 text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">
-                        {exam.startDate} {exam.startDate !== exam.endDate && `- ${exam.endDate}`}
-                      </span>
-                    </div>
-                    <div className="flex gap-1 mt-2">
-                      {exam.grades.map((grade, idx) => (
-                        <Badge key={idx} variant="outline" className="text-xs">
-                          {grade}
-                        </Badge>
-                      ))}
-                    </div>
+                  <div className="flex items-center gap-3">
+                    {getTypeBadge(exam.type)}
+                    {getStatusBadge(exam.status)}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleEditExam(exam)}
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleDeleteExam(exam.id)}
+                      disabled={isDeleting === exam.id}
+                    >
+                      {isDeleting === exam.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  {getTypeBadge(exam.type)}
-                  {getStatusBadge(exam.status)}
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      {/* Edit Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Exam</DialogTitle>
+            <DialogDescription>Update examination details</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>{t("examName")}</Label>
+              <Input 
+                placeholder="e.g., First Term Examination 2024" 
+                value={newExam.name}
+                onChange={(e) => setNewExam({ ...newExam, name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>{t("examType")}</Label>
+              <Select value={newExam.type} onValueChange={(value) => setNewExam({ ...newExam, type: value })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="firstTerm">{t("firstTerm")}</SelectItem>
+                  <SelectItem value="secondTerm">{t("secondTerm")}</SelectItem>
+                  <SelectItem value="thirdTerm">{t("thirdTerm")}</SelectItem>
+                  <SelectItem value="monthlyTest">{t("monthlyTest")}</SelectItem>
+                  <SelectItem value="quiz">{t("quiz")}</SelectItem>
+                  <SelectItem value="assignment">{t("assignment")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Start Date</Label>
+                <Input 
+                  type="date" 
+                  value={newExam.startDate}
+                  onChange={(e) => setNewExam({ ...newExam, startDate: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>End Date</Label>
+                <Input 
+                  type="date" 
+                  value={newExam.endDate}
+                  onChange={(e) => setNewExam({ ...newExam, endDate: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Applicable Grades</Label>
+              <Select value={selectedGrade} onValueChange={setSelectedGrade}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select grades" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Grades</SelectItem>
+                  {availableGrades.map((grade) => (
+                    <SelectItem key={grade} value={grade}>{grade}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setEditDialogOpen(false)
+              setEditingExam(null)
+              setNewExam({ name: "", type: "", startDate: "", endDate: "", grades: [] })
+              setSelectedGrade("")
+            }}>
+              {t("cancel")}
+            </Button>
+            <Button onClick={handleSaveEdit} disabled={isSaving}>
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Save"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
