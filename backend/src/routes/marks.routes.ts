@@ -1,43 +1,48 @@
 import { Router } from 'express';
 import { authenticateToken } from '../middleware/auth.middleware';
-import { requireTeacher, requireAdminOrTeacher } from '../middleware/role.middleware';
+import { requireAdminOrTeacher } from '../middleware/role.middleware';
+import marksController from '../controllers/marks.controller';
 
 const router = Router();
 
 router.use(authenticateToken);
 
-router.get('/exam/:examId', requireAdminOrTeacher, (_req, res) => {
-  res.json({ message: 'Marks by exam - to be implemented' });
-});
+// Get marks by exam
+router.get('/exam/:examId', requireAdminOrTeacher, marksController.getMarksByExam.bind(marksController));
 
-router.get('/student/:id', authenticateToken, (_req, res) => {
-  res.json({ message: 'Student marks - to be implemented' });
-});
+// Get students for marks entry
+router.get('/students', requireAdminOrTeacher, marksController.getStudentsForMarksEntry.bind(marksController));
 
-router.post('/enter', requireTeacher, (_req, res) => {
-  res.json({ message: 'Enter marks - to be implemented' });
-});
+// Enter marks (admin and teachers can enter)
+router.post('/enter', requireAdminOrTeacher, marksController.enterMarks.bind(marksController));
 
-router.put('/:id', requireTeacher, (_req, res) => {
-  res.json({ message: 'Update mark - to be implemented' });
-});
+// Update mark (admin and teachers can update)
+router.put('/:id', requireAdminOrTeacher, marksController.updateMark.bind(marksController));
 
-router.post('/upload-paper', requireTeacher, (_req, res) => {
+// Get student marks
+router.get('/student/:id', authenticateToken, marksController.getStudentMarks.bind(marksController));
+
+// Upload exam paper (to be implemented)
+router.post('/upload-paper', requireAdminOrTeacher, (_req, res) => {
   res.json({ message: 'Upload exam paper - to be implemented' });
 });
 
+// Get exam paper (to be implemented)
 router.get('/paper/:studentId/:examId', authenticateToken, (_req, res) => {
   res.json({ message: 'Get exam paper - to be implemented' });
 });
 
-router.delete('/paper/:studentId/:examId', requireTeacher, (_req, res) => {
+// Delete exam paper (to be implemented)
+router.delete('/paper/:studentId/:examId', requireAdminOrTeacher, (_req, res) => {
   res.json({ message: 'Delete exam paper - to be implemented' });
 });
 
+// Class marks summary (to be implemented)
 router.get('/class/:id/summary', requireAdminOrTeacher, (_req, res) => {
   res.json({ message: 'Class marks summary - to be implemented' });
 });
 
+// Report card (to be implemented)
 router.get('/report-card/:studentId', authenticateToken, (_req, res) => {
   res.json({ message: 'Report card - to be implemented' });
 });

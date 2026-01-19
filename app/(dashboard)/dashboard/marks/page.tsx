@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -20,7 +20,9 @@ import {
 } from "@/components/ui/dialog"
 import { useLanguage } from "@/lib/i18n/context"
 import { useAuth } from "@/lib/auth/context"
-import { Save, Search, FileText, Upload, Eye, Download, X, File, ImageIcon } from "lucide-react"
+import { apiRequest } from "@/lib/api/client"
+import { Save, Search, FileText, Upload, Eye, Download, X, File, ImageIcon, Loader2, AlertCircle } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 const mockExams = [
   { id: "1", name: "First Term Examination 2024", type: "firstTerm", date: "2024-04-15" },
@@ -296,29 +298,172 @@ function ExamPaperUploader({
   )
 }
 
+interface Exam {
+  id: string
+  name: string
+  type: string
+  startDate: string
+  endDate: string
+}
+
+interface Class {
+  id: string
+  name: string
+  grade: string
+}
+
+interface Subject {
+  id: string
+  name: string
+  code: string
+}
+
+interface Student {
+  id: string
+  name: string
+  rollNo: string
+  admissionNumber: string
+}
+
 export default function MarksPage() {
   const { t } = useLanguage()
   const { user } = useAuth()
-  const [selectedExam, setSelectedExam] = useState("1")
-  const [selectedClass, setSelectedClass] = useState("grade-10-a")
-  const [selectedSubject, setSelectedSubject] = useState("mathematics")
+  const [selectedExam, setSelectedExam] = useState("")
+  const [selectedClass, setSelectedClass] = useState("")
+  const [selectedSubject, setSelectedSubject] = useState("")
+  const [totalMarks, setTotalMarks] = useState(100)
   const [searchQuery, setSearchQuery] = useState("")
-  const [marks, setMarks] = useState<Record<string, number>>(
-    mockStudentsMarks.reduce((acc, student) => ({ ...acc, [student.id]: student.marks }), {}),
-  )
-  const [examPapers, setExamPapers] = useState<Record<string, string | null>>(
-    mockStudentsMarks.reduce((acc, student) => ({ ...acc, [student.id]: student.examPaper }), {}),
-  )
+  const [marks, setMarks] = useState<Record<string, number>>({})
+  const [remarks, setRemarks] = useState<Record<string, string>>({})
+  const [examPapers, setExamPapers] = useState<Record<string, string | null>>({})
+  
+  const [exams, setExams] = useState<Exam[]>([])
+  const [classes, setClasses] = useState<Class[]>([])
+  const [subjects, setSubjects] = useState<Subject[]>([])
+  const [students, setStudents] = useState<Student[]>([])
+  const [existingMarks, setExistingMarks] = useState<Record<string, any>>({})
+  
+  const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingStudents, setIsLoadingStudents] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
 
   const isTeacherOrAdmin = user?.role === "teacher" || user?.role === "admin"
 
-  const filteredStudents = mockStudentsMarks.filter((student) =>
-    student.name.toLowerCase().includes(searchQuery.toLowerCase()),
+  useEffect(() => {
+    if (isTeacherOrAdmin) {
+      fetchExams()
+      fetchClasses()
+      fetchSubjects()
+    }
+  }, [isTeacherOrAdmin])
+
+  useEffect(() => {
+    if (selectedClass && selectedExam && selectedSubject) {
+      fetchStudents()
+      fetchExistingMarks()
+    }
+  }, [selectedClass, selectedExam, selectedSubject])
+
+  const fetchExams = async () => {
+    try {
+      const response = await apiRequest('/exams')
+      const data = await response.json()
+      if (response.ok) {
+        setExams(data.data?.exams || [])
+      }
+    } catch (err: any) {
+      console.error('Fetch exams error:', err)
+    }
+  }
+
+  const fetchClasses = async () => {
+    try {
+      const response = await apiRequest('/academic/classes')
+      const data = await response.json()
+      if (response.ok) {
+        setClasses(data.data?.classes || [])
+      }
+    } catch (err: any) {
+      console.error('Fetch classes error:', err)
+    }
+  }
+
+  const fetchSubjects = async () => {
+    try {
+      const response = await apiRequest('/academic/subjects')
+      const data = await response.json()
+      if (response.ok) {
+        setSubjects(data.data?.subjects || [])
+      }
+    } catch (err: any) {
+      console.error('Fetch subjects error:', err)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const fetchStudents = async () => {
+    try {
+      setIsLoadingStudents(true)
+      const response = await apiRequest(`/marks/students?className=${encodeURIComponent(selectedClass)}`)
+      const data = await response.json()
+      if (response.ok) {
+        const studentsList = data.data?.students || []
+        setStudents(studentsList)
+        // Initialize marks with 0 for all students
+        const initialMarks: Record<string, number> = {}
+        studentsList.forEach((student: Student) => {
+          initialMarks[student.id] = 0
+        })
+        setMarks(initialMarks)
+      }
+    } catch (err: any) {
+      console.error('Fetch students error:', err)
+      setError('Failed to load students')
+    } finally {
+      setIsLoadingStudents(false)
+    }
+  }
+
+  const fetchExistingMarks = async () => {
+    try {
+      const response = await apiRequest(`/marks/exam/${selectedExam}?className=${encodeURIComponent(selectedClass)}&subjectId=${selectedSubject}`)
+      const data = await response.json()
+      if (response.ok) {
+        const marksList = data.data?.marks || []
+        const marksMap: Record<string, any> = {}
+        const marksValues: Record<string, number> = {}
+        const remarksMap: Record<string, string> = {}
+        
+        marksList.forEach((mark: any) => {
+          marksMap[mark.studentId] = mark
+          marksValues[mark.studentId] = mark.marks
+          remarksMap[mark.studentId] = mark.remarks || ''
+        })
+        
+        setExistingMarks(marksMap)
+        setMarks((prev) => ({ ...prev, ...marksValues }))
+        setRemarks(remarksMap)
+      }
+    } catch (err: any) {
+      console.error('Fetch existing marks error:', err)
+    }
+  }
+
+  const filteredStudents = students.filter((student) =>
+    student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    student.rollNo.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
   const handleMarksChange = (studentId: string, value: string) => {
     const numValue = Number.parseInt(value) || 0
-    setMarks((prev) => ({ ...prev, [studentId]: Math.min(100, Math.max(0, numValue)) }))
+    setMarks((prev) => ({ ...prev, [studentId]: Math.min(totalMarks, Math.max(0, numValue)) }))
+  }
+
+  const handleRemarksChange = (studentId: string, value: string) => {
+    setRemarks((prev) => ({ ...prev, [studentId]: value }))
   }
 
   const handleExamPaperUpload = (studentId: string, file: File | null) => {
@@ -331,8 +476,63 @@ export default function MarksPage() {
     }
   }
 
-  const handleSave = () => {
-    alert("Marks and exam papers saved successfully!")
+  const handleSave = async () => {
+    if (!selectedExam || !selectedClass || !selectedSubject) {
+      setError("Please select exam, class, and subject")
+      return
+    }
+
+    const marksToSave = filteredStudents
+      .filter(student => marks[student.id] !== undefined && marks[student.id] > 0)
+      .map(student => ({
+        studentId: student.id,
+        studentName: student.name,
+        admissionNumber: student.rollNo,
+        marks: marks[student.id],
+        remarks: remarks[student.id] || '',
+      }))
+
+    if (marksToSave.length === 0) {
+      setError("Please enter marks for at least one student")
+      return
+    }
+
+    try {
+      setIsSaving(true)
+      setError(null)
+      setSuccess(null)
+
+      const selectedExamData = exams.find(e => e.id === selectedExam)
+      const selectedSubjectData = subjects.find(s => s.id === selectedSubject)
+
+      const response = await apiRequest('/marks/enter', {
+        method: 'POST',
+        body: JSON.stringify({
+          examId: selectedExam,
+          examName: selectedExamData?.name || 'Unknown Exam',
+          className: selectedClass,
+          subjectId: selectedSubject,
+          subjectName: selectedSubjectData?.name || 'Unknown Subject',
+          totalMarks,
+          marks: marksToSave,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to save marks')
+      }
+
+      setSuccess(`Marks saved successfully for ${data.data?.marked || marksToSave.length} students!`)
+      await fetchExistingMarks()
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (err: any) {
+      console.error('Save marks error:', err)
+      setError(err.message || 'Failed to save marks')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   // Parent view
@@ -464,6 +664,14 @@ export default function MarksPage() {
   }
 
   // Teacher/Admin view
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -471,11 +679,34 @@ export default function MarksPage() {
           <h1 className="text-2xl font-bold text-foreground">{t("marks")}</h1>
           <p className="text-muted-foreground">{t("enterMarks")}</p>
         </div>
-        <Button onClick={handleSave}>
-          <Save className="h-4 w-4 mr-2" />
-          {t("save")}
+        <Button onClick={handleSave} disabled={isSaving || !selectedExam || !selectedClass || !selectedSubject}>
+          {isSaving ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Saving...
+            </>
+          ) : (
+            <>
+              <Save className="h-4 w-4 mr-2" />
+              {t("save")}
+            </>
+          )}
         </Button>
       </div>
+
+      {/* Error/Success Messages */}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {success && (
+        <Alert className="bg-success/10 border-success">
+          <AlertCircle className="h-4 w-4 text-success" />
+          <AlertDescription className="text-success">{success}</AlertDescription>
+        </Alert>
+      )}
 
       <Tabs defaultValue="enter" className="space-y-4">
         <TabsList>
@@ -492,10 +723,10 @@ export default function MarksPage() {
                   <Label>{t("examName")}</Label>
                   <Select value={selectedExam} onValueChange={setSelectedExam}>
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder="Select exam" />
                     </SelectTrigger>
                     <SelectContent>
-                      {mockExams.map((exam) => (
+                      {exams.map((exam) => (
                         <SelectItem key={exam.id} value={exam.id}>
                           {exam.name}
                         </SelectItem>
@@ -507,12 +738,14 @@ export default function MarksPage() {
                   <Label>{t("className")}</Label>
                   <Select value={selectedClass} onValueChange={setSelectedClass}>
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder="Select class" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="grade-10-a">Grade 10-A</SelectItem>
-                      <SelectItem value="grade-10-b">Grade 10-B</SelectItem>
-                      <SelectItem value="grade-9-a">Grade 9-A</SelectItem>
+                      {classes.map((cls) => (
+                        <SelectItem key={cls.id} value={cls.name}>
+                          {cls.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -520,14 +753,26 @@ export default function MarksPage() {
                   <Label>{t("subjectName")}</Label>
                   <Select value={selectedSubject} onValueChange={setSelectedSubject}>
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder="Select subject" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="mathematics">Mathematics</SelectItem>
-                      <SelectItem value="science">Science</SelectItem>
-                      <SelectItem value="english">English</SelectItem>
+                      {subjects.map((subject) => (
+                        <SelectItem key={subject.id} value={subject.id}>
+                          {subject.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Total Marks</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={totalMarks}
+                    onChange={(e) => setTotalMarks(Number.parseInt(e.target.value) || 100)}
+                    className="w-full"
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>{t("search")}</Label>
@@ -546,74 +791,110 @@ export default function MarksPage() {
           </Card>
 
           {/* Marks Entry Table with Exam Paper Upload */}
-          <Card>
-            <CardHeader>
-              <CardTitle>First Term Examination 2024 - Mathematics</CardTitle>
-              <CardDescription>Grade 10-A ({filteredStudents.length} students) - Total: 100 marks</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Roll No</th>
-                      <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Name</th>
-                      <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">
-                        {t("obtainedMarks")}
-                      </th>
-                      <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">
-                        {t("percentage")}
-                      </th>
-                      <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">
-                        {t("gradeLabel")}
-                      </th>
-                      <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Exam Paper</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredStudents.map((student) => {
-                      const grade = getGrade(marks[student.id], student.total)
-                      return (
-                        <tr key={student.id} className="border-b border-border last:border-0">
-                          <td className="py-3 px-2 text-sm text-muted-foreground">{student.rollNo}</td>
-                          <td className="py-3 px-2">
-                            <div className="flex items-center gap-3">
-                              <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-sm font-medium">
-                                {student.name.charAt(0)}
-                              </div>
-                              <span className="text-sm text-foreground">{student.name}</span>
-                            </div>
-                          </td>
-                          <td className="py-3 px-2">
-                            <Input
-                              type="number"
-                              min="0"
-                              max="100"
-                              value={marks[student.id]}
-                              onChange={(e) => handleMarksChange(student.id, e.target.value)}
-                              className="w-20"
-                            />
-                          </td>
-                          <td className="py-3 px-2 text-sm text-foreground">{marks[student.id]}%</td>
-                          <td className="py-3 px-2">
-                            <Badge className={getGradeColor(grade)}>{grade}</Badge>
-                          </td>
-                          <td className="py-3 px-2">
-                            <ExamPaperUploader
-                              studentId={student.id}
-                              studentName={student.name}
-                              currentPaper={examPapers[student.id]}
-                              onUpload={handleExamPaperUpload}
-                            />
-                          </td>
+          {selectedExam && selectedClass && selectedSubject ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  {exams.find(e => e.id === selectedExam)?.name || 'Exam'} - {subjects.find(s => s.id === selectedSubject)?.name || 'Subject'}
+                </CardTitle>
+                <CardDescription>
+                  {selectedClass} ({filteredStudents.length} students) - Total: {totalMarks} marks
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {isLoadingStudents ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : filteredStudents.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    No students found in this class.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Roll No</th>
+                          <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Name</th>
+                          <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">
+                            {t("obtainedMarks")}
+                          </th>
+                          <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">
+                            {t("percentage")}
+                          </th>
+                          <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">
+                            {t("gradeLabel")}
+                          </th>
+                          <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Remarks</th>
+                          <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Exam Paper</th>
                         </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+                      </thead>
+                      <tbody>
+                        {filteredStudents.map((student) => {
+                          const studentMarks = marks[student.id] || 0
+                          const percentage = totalMarks > 0 ? Math.round((studentMarks / totalMarks) * 100) : 0
+                          const grade = getGrade(studentMarks, totalMarks)
+                          return (
+                            <tr key={student.id} className="border-b border-border last:border-0">
+                              <td className="py-3 px-2 text-sm text-muted-foreground">{student.rollNo}</td>
+                              <td className="py-3 px-2">
+                                <div className="flex items-center gap-3">
+                                  <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-sm font-medium">
+                                    {student.name.charAt(0)}
+                                  </div>
+                                  <span className="text-sm text-foreground">{student.name}</span>
+                                </div>
+                              </td>
+                              <td className="py-3 px-2">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  max={totalMarks}
+                                  value={studentMarks}
+                                  onChange={(e) => handleMarksChange(student.id, e.target.value)}
+                                  className="w-20"
+                                />
+                              </td>
+                              <td className="py-3 px-2 text-sm text-foreground">{percentage}%</td>
+                              <td className="py-3 px-2">
+                                <Badge className={getGradeColor(grade)}>{grade}</Badge>
+                              </td>
+                              <td className="py-3 px-2">
+                                <Input
+                                  type="text"
+                                  placeholder="Remarks..."
+                                  value={remarks[student.id] || ''}
+                                  onChange={(e) => handleRemarksChange(student.id, e.target.value)}
+                                  className="w-32"
+                                />
+                              </td>
+                              <td className="py-3 px-2">
+                                <ExamPaperUploader
+                                  studentId={student.id}
+                                  studentName={student.name}
+                                  currentPaper={examPapers[student.id]}
+                                  onUpload={handleExamPaperUpload}
+                                />
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-center py-12 text-muted-foreground">
+                  Please select exam, class, and subject to enter marks.
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="view" className="space-y-4">
