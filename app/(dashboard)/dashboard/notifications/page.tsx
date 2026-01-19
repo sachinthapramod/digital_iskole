@@ -1,14 +1,16 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useLanguage } from "@/lib/i18n/context"
 import { useAuth } from "@/lib/auth/context"
+import { apiRequest } from "@/lib/api/client"
 import {
   Bell,
   Calendar,
@@ -21,6 +23,8 @@ import {
   Search,
   Filter,
   GraduationCap,
+  Loader2,
+  AlertCircle,
 } from "lucide-react"
 import { formatDistanceToNow, format } from "date-fns"
 
@@ -245,27 +249,119 @@ const getNotificationsForRole = (role: string): Notification[] => {
 export default function NotificationsPage() {
   const { t } = useLanguage()
   const { user } = useAuth()
-  const [notifications, setNotifications] = useState<Notification[]>(getNotificationsForRole(user?.role || "parent"))
+  const [notifications, setNotifications] = useState<Notification[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [filterType, setFilterType] = useState<string>("all")
   const [activeTab, setActiveTab] = useState("all")
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetchNotifications()
+    // Refresh notifications every 30 seconds
+    const interval = setInterval(fetchNotifications, 30000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const fetchNotifications = async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      const response = await apiRequest('/notifications')
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to fetch notifications')
+      }
+
+      const notificationsList = (data.data?.notifications || []).map((notif: any) => ({
+        id: notif.id,
+        type: notif.type,
+        title: notif.title,
+        message: notif.message,
+        timestamp: new Date(notif.timestamp || notif.createdAt),
+        read: notif.read || notif.isRead || false,
+        link: notif.link,
+      }))
+
+      setNotifications(notificationsList)
+    } catch (err: any) {
+      console.error('Fetch notifications error:', err)
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to load notifications')
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const unreadCount = notifications.filter((n) => !n.read).length
 
-  const markAsRead = (id: string) => {
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
+  const markAsRead = async (id: string) => {
+    try {
+      const response = await apiRequest(`/notifications/${id}/read`, {
+        method: 'PATCH',
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
+      }
+    } catch (err: any) {
+      console.error('Mark as read error:', err)
+    }
   }
 
-  const markAllAsRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+  const markAllAsRead = async () => {
+    try {
+      const response = await apiRequest('/notifications/read-all', {
+        method: 'PATCH',
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+      }
+    } catch (err: any) {
+      console.error('Mark all as read error:', err)
+    }
   }
 
-  const deleteNotification = (id: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id))
+  const deleteNotification = async (id: string) => {
+    try {
+      const response = await apiRequest(`/notifications/${id}`, {
+        method: 'DELETE',
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setNotifications((prev) => prev.filter((n) => n.id !== id))
+      }
+    } catch (err: any) {
+      console.error('Delete notification error:', err)
+    }
   }
 
-  const clearAllRead = () => {
-    setNotifications((prev) => prev.filter((n) => !n.read))
+  const clearAllRead = async () => {
+    try {
+      const response = await apiRequest('/notifications/read/all', {
+        method: 'DELETE',
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setNotifications((prev) => prev.filter((n) => !n.read))
+      }
+    } catch (err: any) {
+      console.error('Clear all read error:', err)
+    }
   }
 
   const getNotificationIcon = (type: Notification["type"]) => {
@@ -344,21 +440,36 @@ export default function NotificationsPage() {
             {t("allNotifications")} ({unreadCount} {t("unread")})
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {unreadCount > 0 && (
-            <Button variant="outline" size="sm" onClick={markAllAsRead}>
-              <CheckCheck className="h-4 w-4 mr-2" />
-              {t("markAllRead")}
-            </Button>
-          )}
-          {notifications.some((n) => n.read) && (
-            <Button variant="outline" size="sm" onClick={clearAllRead}>
-              <Trash2 className="h-4 w-4 mr-2" />
-              {t("clearRead")}
-            </Button>
-          )}
-        </div>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-2">
+            {unreadCount > 0 && (
+              <Button variant="outline" size="sm" onClick={markAllAsRead}>
+                <CheckCheck className="h-4 w-4 mr-2" />
+                {t("markAllRead")}
+              </Button>
+            )}
+            {notifications.some((n) => n.read) && (
+              <Button variant="outline" size="sm" onClick={clearAllRead}>
+                <Trash2 className="h-4 w-4 mr-2" />
+                {t("clearRead")}
+              </Button>
+            )}
+          </div>
 
       {/* Filters */}
       <Card>
@@ -507,6 +618,8 @@ export default function NotificationsPage() {
           )}
         </TabsContent>
       </Tabs>
+        </>
+      )}
     </div>
   )
 }

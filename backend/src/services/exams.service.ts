@@ -1,7 +1,10 @@
 import { db } from '../config/firebase';
 import { Timestamp } from 'firebase-admin/firestore';
 import { ApiErrorResponse } from '../utils/response';
+import { NotificationsService } from './notifications.service';
 import logger from '../utils/logger';
+
+const notificationsService = new NotificationsService();
 
 interface ExamData {
   name: string;
@@ -137,6 +140,29 @@ export class ExamsService {
       };
       
       const examRef = await db.collection('exams').add(examData);
+      
+      // Create notifications for all users about the new exam
+      try {
+        const usersSnapshot = await db.collection('users')
+          .where('status', '==', 'active')
+          .get();
+        
+        const userIds = usersSnapshot.docs.map(doc => doc.id);
+        
+        if (userIds.length > 0) {
+          await notificationsService.createBulkNotifications(userIds, {
+            type: 'exams',
+            title: `New Exam Scheduled: ${data.name}`,
+            message: `A new ${data.type.replace('-', ' ')} exam has been scheduled. Start date: ${data.startDate}`,
+            link: '/dashboard/exams',
+            data: { examId: examRef.id },
+            priority: 'normal',
+          });
+        }
+      } catch (notifError: any) {
+        // Log error but don't fail exam creation
+        logger.error('Failed to create notifications for exam:', notifError);
+      }
       
       return {
         id: examRef.id,

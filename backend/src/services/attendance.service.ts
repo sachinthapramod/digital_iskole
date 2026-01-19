@@ -2,7 +2,10 @@ import { db } from '../config/firebase';
 import { Timestamp } from 'firebase-admin/firestore';
 import { ApiErrorResponse } from '../utils/response';
 import { Attendance } from '../types/attendance.types';
+import { NotificationsService } from './notifications.service';
 import logger from '../utils/logger';
+
+const notificationsService = new NotificationsService();
 
 export class AttendanceService {
   async getStudentsByClass(className: string): Promise<any[]> {
@@ -274,6 +277,55 @@ export class AttendanceService {
       }
       
       await batch.commit();
+      
+      // Create notifications for parents of absent/late students
+      try {
+        const absentLateStudents = data.attendance.filter(a => a.status === 'absent' || a.status === 'late');
+        if (absentLateStudents.length > 0) {
+          const studentIds = absentLateStudents.map(a => a.studentId);
+          const parentUserIds: string[] = [];
+          
+          // Get parent IDs for absent/late students
+          for (const studentId of studentIds) {
+            const studentDoc = await db.collection('students').doc(studentId).get();
+            if (studentDoc.exists) {
+              const studentData = studentDoc.data();
+              if (studentData?.parentId) {
+                const parentDoc = await db.collection('parents').doc(studentData.parentId).get();
+                if (parentDoc.exists) {
+                  const parentData = parentDoc.data();
+                  if (parentData?.userId) {
+                    parentUserIds.push(parentData.userId);
+                  }
+                }
+              }
+            }
+          }
+          
+          // Remove duplicates
+          const uniqueParentIds = Array.from(new Set(parentUserIds));
+          
+          if (uniqueParentIds.length > 0) {
+            const absentCount = data.attendance.filter(a => a.status === 'absent').length;
+            const lateCount = data.attendance.filter(a => a.status === 'late').length;
+            let message = `Attendance marked for ${data.className} on ${data.date}.`;
+            if (absentCount > 0) message += ` ${absentCount} student(s) absent.`;
+            if (lateCount > 0) message += ` ${lateCount} student(s) late.`;
+            
+            await notificationsService.createBulkNotifications(uniqueParentIds, {
+              type: 'attendance',
+              title: `Attendance Update: ${data.className}`,
+              message,
+              link: '/dashboard/attendance',
+              data: { className: data.className, date: data.date },
+              priority: 'normal',
+            });
+          }
+        }
+      } catch (notifError: any) {
+        // Log error but don't fail attendance marking
+        logger.error('Failed to create notifications for attendance:', notifError);
+      }
       
       return { marked: results.length, attendance: results };
     } catch (error: any) {

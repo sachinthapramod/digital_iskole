@@ -1,42 +1,40 @@
 import { Router } from 'express';
 import { authenticateToken } from '../middleware/auth.middleware';
+import notificationsController from '../controllers/notifications.controller';
 
 const router = Router();
 
 router.use(authenticateToken);
 
-router.get('/', (_req, res) => {
-  res.json({ message: 'Notifications list - to be implemented' });
-});
+// Get all notifications for the authenticated user
+router.get('/', notificationsController.getNotifications.bind(notificationsController));
 
-router.get('/unread/count', (_req, res) => {
-  res.json({ message: 'Unread count - to be implemented' });
-});
+// Get unread count
+router.get('/unread/count', notificationsController.getUnreadCount.bind(notificationsController));
 
-router.patch('/:id/read', (_req, res) => {
-  res.json({ message: 'Mark as read - to be implemented' });
-});
+// Mark notification as read
+router.patch('/:id/read', notificationsController.markAsRead.bind(notificationsController));
 
-router.patch('/read-all', (_req, res) => {
-  res.json({ message: 'Mark all as read - to be implemented' });
-});
+// Mark all notifications as read
+router.patch('/read-all', notificationsController.markAllAsRead.bind(notificationsController));
 
-router.delete('/:id', (_req, res) => {
-  res.json({ message: 'Delete notification - to be implemented' });
-});
+// Delete notification
+router.delete('/:id', notificationsController.deleteNotification.bind(notificationsController));
 
-router.delete('/all', (_req, res) => {
-  res.json({ message: 'Delete all notifications - to be implemented' });
-});
+// Delete all read notifications
+router.delete('/read/all', notificationsController.deleteAllRead.bind(notificationsController));
 
+// Recent notifications (to be implemented)
 router.get('/recent', (_req, res) => {
   res.json({ message: 'Recent notifications - to be implemented' });
 });
 
+// Subscribe to push (to be implemented)
 router.post('/subscribe', (_req, res) => {
   res.json({ message: 'Subscribe to push - to be implemented' });
 });
 
+// Unsubscribe from push (to be implemented)
 router.post('/unsubscribe', (_req, res) => {
   res.json({ message: 'Unsubscribe from push - to be implemented' });
 });

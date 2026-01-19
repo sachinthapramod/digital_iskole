@@ -343,6 +343,13 @@ export default function MarksPage() {
   const [students, setStudents] = useState<Student[]>([])
   const [existingMarks, setExistingMarks] = useState<Record<string, any>>({})
   
+  // View marks state
+  const [viewExam, setViewExam] = useState("")
+  const [viewClass, setViewClass] = useState("")
+  const [viewSubject, setViewSubject] = useState("")
+  const [viewMarks, setViewMarks] = useState<any[]>([])
+  const [isLoadingViewMarks, setIsLoadingViewMarks] = useState(false)
+  
   const [isLoading, setIsLoading] = useState(true)
   const [isLoadingStudents, setIsLoadingStudents] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -451,6 +458,53 @@ export default function MarksPage() {
       console.error('Fetch existing marks error:', err)
     }
   }
+
+  const fetchViewMarks = async () => {
+    if (!viewExam || !viewClass || !viewSubject) {
+      setViewMarks([])
+      return
+    }
+
+    try {
+      setIsLoadingViewMarks(true)
+      setError(null)
+
+      // Fetch students for the class to get roll numbers
+      const studentsResponse = await apiRequest(`/marks/students?className=${encodeURIComponent(viewClass)}`)
+      const studentsData = await studentsResponse.json()
+      if (studentsResponse.ok) {
+        setStudents(studentsData.data?.students || [])
+      }
+
+      // Fetch marks
+      const response = await apiRequest(`/marks/exam/${viewExam}?className=${encodeURIComponent(viewClass)}&subjectId=${viewSubject}`)
+      const data = await response.json()
+
+      if (response.ok) {
+        const marksList = data.data?.marks || []
+        // Sort by student name
+        marksList.sort((a: any, b: any) => a.studentName.localeCompare(b.studentName))
+        setViewMarks(marksList)
+      } else {
+        setError(data.message || 'Failed to fetch marks')
+        setViewMarks([])
+      }
+    } catch (err: any) {
+      console.error('Fetch view marks error:', err)
+      setError(err.message || 'Failed to fetch marks')
+      setViewMarks([])
+    } finally {
+      setIsLoadingViewMarks(false)
+    }
+  }
+
+  useEffect(() => {
+    if (viewExam && viewClass && viewSubject) {
+      fetchViewMarks()
+    } else {
+      setViewMarks([])
+    }
+  }, [viewExam, viewClass, viewSubject])
 
   const filteredStudents = students.filter((student) =>
     student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -898,15 +952,191 @@ export default function MarksPage() {
         </TabsContent>
 
         <TabsContent value="view" className="space-y-4">
+          {/* Filters for View Marks */}
           <Card>
-            <CardHeader>
-              <CardTitle>Marks Summary</CardTitle>
-              <CardDescription>View submitted marks for all exams</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground">Select an exam from the filters above to view marks.</p>
+            <CardContent className="pt-6">
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>{t("examName")}</Label>
+                  <Select value={viewExam} onValueChange={setViewExam}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select exam" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {exams.map((exam) => (
+                        <SelectItem key={exam.id} value={exam.id}>
+                          {exam.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>{t("className")}</Label>
+                  <Select value={viewClass} onValueChange={setViewClass}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select class" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {classes.map((cls) => (
+                        <SelectItem key={cls.id} value={cls.name}>
+                          {cls.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>{t("subjectName")}</Label>
+                  <Select value={viewSubject} onValueChange={setViewSubject}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select subject" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {subjects.map((subject) => (
+                        <SelectItem key={subject.id} value={subject.id}>
+                          {subject.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             </CardContent>
           </Card>
+
+          {/* Marks Summary Statistics */}
+          {viewMarks.length > 0 && (
+            <div className="grid gap-4 sm:grid-cols-4">
+              <Card>
+                <CardContent className="pt-6 text-center">
+                  <p className="text-sm text-muted-foreground">Total Students</p>
+                  <p className="text-2xl font-bold text-foreground">{viewMarks.length}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6 text-center">
+                  <p className="text-sm text-muted-foreground">Average Marks</p>
+                  <p className="text-2xl font-bold text-primary">
+                    {viewMarks.length > 0
+                      ? Math.round(
+                          (viewMarks.reduce((sum, m) => sum + m.marks, 0) / viewMarks.length) * 100
+                        ) / 100
+                      : 0}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6 text-center">
+                  <p className="text-sm text-muted-foreground">Average Percentage</p>
+                  <p className="text-2xl font-bold text-primary">
+                    {viewMarks.length > 0
+                      ? Math.round(
+                          (viewMarks.reduce((sum, m) => sum + m.percentage, 0) / viewMarks.length) * 100
+                        ) / 100
+                      : 0}%
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6 text-center">
+                  <p className="text-sm text-muted-foreground">Pass Rate</p>
+                  <p className="text-2xl font-bold text-success">
+                    {viewMarks.length > 0
+                      ? Math.round(
+                          (viewMarks.filter((m) => m.grade !== 'F').length / viewMarks.length) * 100
+                        )
+                      : 0}%
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Marks Table */}
+          {viewExam && viewClass && viewSubject ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  {exams.find(e => e.id === viewExam)?.name || 'Exam'} - {subjects.find(s => s.id === viewSubject)?.name || 'Subject'}
+                </CardTitle>
+                <CardDescription>
+                  {viewClass} - View all submitted marks
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {isLoadingViewMarks ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : viewMarks.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    No marks found for the selected exam, class, and subject.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Roll No</th>
+                          <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Name</th>
+                          <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">
+                            {t("obtainedMarks")}
+                          </th>
+                          <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">
+                            {t("percentage")}
+                          </th>
+                          <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">
+                            {t("gradeLabel")}
+                          </th>
+                          <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Remarks</th>
+                          <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Entered By</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {viewMarks.map((mark) => (
+                          <tr key={mark.id} className="border-b border-border last:border-0">
+                            <td className="py-3 px-2 text-sm text-muted-foreground">
+                              {students.find(s => s.id === mark.studentId)?.rollNo || 'N/A'}
+                            </td>
+                            <td className="py-3 px-2">
+                              <div className="flex items-center gap-3">
+                                <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-sm font-medium">
+                                  {mark.studentName.charAt(0)}
+                                </div>
+                                <span className="text-sm text-foreground">{mark.studentName}</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-2 text-sm text-foreground">
+                              {mark.marks}/{mark.totalMarks}
+                            </td>
+                            <td className="py-3 px-2 text-sm text-foreground">{mark.percentage}%</td>
+                            <td className="py-3 px-2">
+                              <Badge className={getGradeColor(mark.grade)}>{mark.grade}</Badge>
+                            </td>
+                            <td className="py-3 px-2 text-sm text-muted-foreground">
+                              {mark.remarks || '-'}
+                            </td>
+                            <td className="py-3 px-2 text-sm text-muted-foreground">
+                              {mark.enteredByName || 'N/A'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-center py-12 text-muted-foreground">
+                  Please select exam, class, and subject to view marks.
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
     </div>

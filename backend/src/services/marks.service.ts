@@ -2,7 +2,10 @@ import { db } from '../config/firebase';
 import { Timestamp } from 'firebase-admin/firestore';
 import { ApiErrorResponse } from '../utils/response';
 import { Mark } from '../types/marks.types';
+import { NotificationsService } from './notifications.service';
 import logger from '../utils/logger';
+
+const notificationsService = new NotificationsService();
 
 function calculateGrade(marks: number, totalMarks: number): string {
   const percentage = (marks / totalMarks) * 100;
@@ -190,6 +193,46 @@ export class MarksService {
       }
 
       await batch.commit();
+
+      // Create notifications for parents of students whose marks were entered
+      try {
+        const studentIds = Array.from(new Set(data.marks.map(m => m.studentId)));
+        const parentUserIds: string[] = [];
+        
+        // Get parent IDs for students (fetch documents directly by ID)
+        for (const studentId of studentIds) {
+          const studentDoc = await db.collection('students').doc(studentId).get();
+          if (studentDoc.exists) {
+            const studentData = studentDoc.data();
+            if (studentData?.parentId) {
+              const parentDoc = await db.collection('parents').doc(studentData.parentId).get();
+              if (parentDoc.exists) {
+                const parentData = parentDoc.data();
+                if (parentData?.userId) {
+                  parentUserIds.push(parentData.userId);
+                }
+              }
+            }
+          }
+        }
+        
+        // Remove duplicates
+        const uniqueParentIds = Array.from(new Set(parentUserIds));
+        
+        if (uniqueParentIds.length > 0) {
+          await notificationsService.createBulkNotifications(uniqueParentIds, {
+            type: 'marks',
+            title: `New Marks Published: ${data.examName}`,
+            message: `Marks for ${data.subjectName} have been published. Check your child's performance.`,
+            link: '/dashboard/marks',
+            data: { examId: data.examId, subjectId: data.subjectId },
+            priority: 'normal',
+          });
+        }
+      } catch (notifError: any) {
+        // Log error but don't fail marks entry
+        logger.error('Failed to create notifications for marks:', notifError);
+      }
 
       return {
         marked: results.length,

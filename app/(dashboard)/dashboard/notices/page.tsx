@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Dialog,
   DialogContent,
@@ -19,7 +20,8 @@ import {
 } from "@/components/ui/dialog"
 import { useLanguage } from "@/lib/i18n/context"
 import { useAuth } from "@/lib/auth/context"
-import { Bell, Plus, Calendar, Users, Search, Edit, Trash2 } from "lucide-react"
+import { apiRequest } from "@/lib/api/client"
+import { Bell, Plus, Calendar, Users, Search, Edit, Trash2, Loader2, AlertCircle } from "lucide-react"
 
 interface Notice {
   id: string
@@ -31,65 +33,12 @@ interface Notice {
   priority: string
 }
 
-const initialNotices: Notice[] = [
-  {
-    id: "1",
-    title: "School Sports Day 2024",
-    content:
-      "We are pleased to announce that the Annual Sports Day will be held on December 20th, 2024. All students are expected to participate in at least one event. Parents are cordially invited to attend and support their children.",
-    target: "all",
-    author: "Admin Office",
-    date: "2024-12-10",
-    priority: "high",
-  },
-  {
-    id: "2",
-    title: "Parent-Teacher Meeting Schedule",
-    content:
-      "The quarterly Parent-Teacher meeting is scheduled for December 15th, 2024. Please check the appointment schedule and confirm your attendance through the portal.",
-    target: "parents",
-    author: "Principal",
-    date: "2024-12-08",
-    priority: "medium",
-  },
-  {
-    id: "3",
-    title: "Holiday Calendar Update",
-    content:
-      "Please note that the school will remain closed from December 23rd to January 2nd for the winter holidays. Regular classes will resume on January 3rd, 2025.",
-    target: "all",
-    author: "Admin Office",
-    date: "2024-12-05",
-    priority: "low",
-  },
-  {
-    id: "4",
-    title: "Mid-Term Examination Results",
-    content:
-      "Mid-term examination results are now available. Parents can view their child's performance through the Marks section of the portal.",
-    target: "parents",
-    author: "Examination Department",
-    date: "2024-12-01",
-    priority: "medium",
-  },
-  {
-    id: "5",
-    title: "Staff Meeting Notice",
-    content:
-      "All teaching staff are requested to attend the monthly staff meeting on December 18th at 3:00 PM in the main auditorium.",
-    target: "teachers",
-    author: "Principal",
-    date: "2024-12-03",
-    priority: "high",
-  },
-]
-
 export default function NoticesPage() {
   const { t } = useLanguage()
   const { user } = useAuth()
   const [searchQuery, setSearchQuery] = useState("")
   const [filterTarget, setFilterTarget] = useState("all")
-  const [notices, setNotices] = useState<Notice[]>(initialNotices)
+  const [notices, setNotices] = useState<Notice[]>([])
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editingNotice, setEditingNotice] = useState<Notice | null>(null)
@@ -99,9 +48,44 @@ export default function NoticesPage() {
     target: "all",
     priority: "medium",
   })
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
 
-  const canCreateNotice = user?.role === "admin" || user?.role === "teacher"
+  const canCreateNotice = user?.role === "admin"
   const isAdmin = user?.role === "admin"
+
+  useEffect(() => {
+    fetchNotices()
+  }, [filterTarget])
+
+  const fetchNotices = async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      const targetParam = filterTarget !== 'all' ? `?target=${filterTarget}` : ''
+      const response = await apiRequest(`/notices${targetParam}`)
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to fetch notices')
+      }
+
+      setNotices(data.data?.notices || [])
+    } catch (err: any) {
+      console.error('Fetch notices error:', err)
+      if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
+        setError("Session expired. Please login again.")
+      } else {
+        setError(err.message || 'Failed to load notices')
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const filteredNotices = notices.filter((notice) => {
     const matchesSearch =
@@ -147,16 +131,44 @@ export default function NoticesPage() {
     }
   }
 
-  const handleCreateNotice = () => {
-    const notice: Notice = {
-      id: String(notices.length + 1),
-      ...newNotice,
-      author: user?.name || "Unknown",
-      date: new Date().toISOString().split("T")[0],
+  const handleCreateNotice = async () => {
+    if (!newNotice.title || !newNotice.content) {
+      setError("Please fill in title and content")
+      return
     }
-    setNotices([notice, ...notices])
-    setDialogOpen(false)
-    setNewNotice({ title: "", content: "", target: "all", priority: "medium" })
+
+    try {
+      setIsSaving(true)
+      setError(null)
+      setSuccess(null)
+
+      const response = await apiRequest('/notices', {
+        method: 'POST',
+        body: JSON.stringify({
+          title: newNotice.title,
+          content: newNotice.content,
+          priority: newNotice.priority,
+          target: newNotice.target,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to create notice')
+      }
+
+      setSuccess("Notice created successfully!")
+      setDialogOpen(false)
+      setNewNotice({ title: "", content: "", target: "all", priority: "medium" })
+      await fetchNotices()
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (err: any) {
+      console.error('Create notice error:', err)
+      setError(err.message || 'Failed to create notice')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleEditNotice = (notice: Notice) => {
@@ -164,17 +176,73 @@ export default function NoticesPage() {
     setEditDialogOpen(true)
   }
 
-  const handleSaveEdit = () => {
-    if (editingNotice) {
-      setNotices(notices.map((n) => (n.id === editingNotice.id ? editingNotice : n)))
+  const handleSaveEdit = async () => {
+    if (!editingNotice || !editingNotice.title || !editingNotice.content) {
+      setError("Please fill in title and content")
+      return
+    }
+
+    try {
+      setIsSaving(true)
+      setError(null)
+      setSuccess(null)
+
+      const response = await apiRequest(`/notices/${editingNotice.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          title: editingNotice.title,
+          content: editingNotice.content,
+          priority: editingNotice.priority,
+          target: editingNotice.target,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to update notice')
+      }
+
+      setSuccess("Notice updated successfully!")
       setEditDialogOpen(false)
       setEditingNotice(null)
+      await fetchNotices()
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (err: any) {
+      console.error('Update notice error:', err)
+      setError(err.message || 'Failed to update notice')
+    } finally {
+      setIsSaving(false)
     }
   }
 
-  const handleDeleteNotice = (id: string) => {
-    if (confirm("Are you sure you want to delete this notice?")) {
-      setNotices(notices.filter((n) => n.id !== id))
+  const handleDeleteNotice = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this notice?")) {
+      return
+    }
+
+    try {
+      setIsDeleting(id)
+      setError(null)
+
+      const response = await apiRequest(`/notices/${id}`, {
+        method: 'DELETE',
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Failed to delete notice')
+      }
+
+      setSuccess("Notice deleted successfully!")
+      await fetchNotices()
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (err: any) {
+      console.error('Delete notice error:', err)
+      setError(err.message || 'Failed to delete notice')
+    } finally {
+      setIsDeleting(null)
     }
   }
 
@@ -195,9 +263,8 @@ export default function NoticesPage() {
   }
 
   const canModifyNotice = (notice: Notice) => {
-    if (user?.role === "admin") return true
-    if (user?.role === "teacher" && notice.author === user?.name) return true
-    return false
+    // Only admins can modify notices
+    return user?.role === "admin"
   }
 
   return (
@@ -281,15 +348,41 @@ export default function NoticesPage() {
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setDialogOpen(false)}>
+                <Button variant="outline" onClick={() => {
+                  setDialogOpen(false)
+                  setNewNotice({ title: "", content: "", target: "all", priority: "medium" })
+                }}>
                   {t("cancel")}
                 </Button>
-                <Button onClick={handleCreateNotice}>{t("submit")}</Button>
+                <Button onClick={handleCreateNotice} disabled={isSaving}>
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    t("submit")
+                  )}
+                </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
         )}
       </div>
+
+      {/* Error/Success Messages */}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {success && (
+        <Alert className="bg-success/10 border-success">
+          <AlertCircle className="h-4 w-4 text-success" />
+          <AlertDescription className="text-success">{success}</AlertDescription>
+        </Alert>
+      )}
 
       {/* Filters */}
       <Card>
@@ -327,8 +420,13 @@ export default function NoticesPage() {
       </Card>
 
       {/* Notices List */}
-      <div className="space-y-4">
-        {filteredNotices.map((notice) => (
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filteredNotices.map((notice) => (
           <Card key={notice.id} className="overflow-hidden">
             <CardHeader className="pb-3">
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
@@ -352,7 +450,12 @@ export default function NoticesPage() {
                   {getTargetBadge(notice.target)}
                   {canModifyNotice(notice) && (
                     <div className="flex gap-1 ml-2">
-                      <Button size="sm" variant="ghost" onClick={() => handleEditNotice(notice)}>
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        onClick={() => handleEditNotice(notice)}
+                        disabled={isDeleting === notice.id}
+                      >
                         <Edit className="h-4 w-4" />
                       </Button>
                       <Button
@@ -360,8 +463,13 @@ export default function NoticesPage() {
                         variant="ghost"
                         className="text-destructive"
                         onClick={() => handleDeleteNotice(notice.id)}
+                        disabled={isDeleting === notice.id}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        {isDeleting === notice.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
                       </Button>
                     </div>
                   )}
@@ -374,15 +482,16 @@ export default function NoticesPage() {
           </Card>
         ))}
 
-        {filteredNotices.length === 0 && (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <Bell className="h-12 w-12 text-muted-foreground/50 mx-auto mb-4" />
-              <p className="text-muted-foreground">{t("noData")}</p>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+          {filteredNotices.length === 0 && (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <Bell className="h-12 w-12 text-muted-foreground/50 mx-auto mb-4" />
+                <p className="text-muted-foreground">{t("noData")}</p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent className="max-w-2xl">
@@ -446,10 +555,22 @@ export default function NoticesPage() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+            <Button variant="outline" onClick={() => {
+              setEditDialogOpen(false)
+              setEditingNotice(null)
+            }}>
               {t("cancel")}
             </Button>
-            <Button onClick={handleSaveEdit}>{t("save")}</Button>
+            <Button onClick={handleSaveEdit} disabled={isSaving}>
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                t("save")
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
