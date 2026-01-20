@@ -798,6 +798,93 @@ export class UsersService {
     }
   }
 
+  async getParentChildrenByUserId(userId: string): Promise<any[]> {
+    try {
+      // Get parent by userId
+      const parentDoc = await db.collection('parents')
+        .where('userId', '==', userId)
+        .limit(1)
+        .get();
+
+      if (parentDoc.empty) {
+        return [];
+      }
+
+      const parentId = parentDoc.docs[0].id;
+      return await this.getParentChildren(parentId);
+    } catch (error: any) {
+      logger.error('Get parent children by userId error:', error);
+      if (error instanceof ApiErrorResponse) {
+        throw error;
+      }
+      throw new ApiErrorResponse('FETCH_FAILED', 'Failed to fetch parent children', 500);
+    }
+  }
+
+  async getParentChildren(parentId: string): Promise<any[]> {
+    try {
+      const parentDoc = await db.collection('parents').doc(parentId).get();
+      
+      if (!parentDoc.exists) {
+        throw new ApiErrorResponse('NOT_FOUND', 'Parent not found', 404);
+      }
+
+      const parentData = parentDoc.data() as Parent;
+      const childrenIds = parentData.children || [];
+
+      if (childrenIds.length === 0) {
+        return [];
+      }
+
+      // Fetch all children
+      const childrenPromises = childrenIds.map(async (childId) => {
+        const childDoc = await db.collection('students').doc(childId).get();
+        if (!childDoc.exists) {
+          return null;
+        }
+
+        const childData = childDoc.data() as Student;
+        const classId = childData.classId;
+
+        // Get class teacher info
+        let classTeacher = { id: '', name: '' };
+        if (classId) {
+          const classDoc = await db.collection('classes').doc(classId).get();
+          if (classDoc.exists) {
+            const classData = classDoc.data();
+            const teacherId = classData?.classTeacherId;
+            if (teacherId) {
+              const teacherDoc = await db.collection('teachers').doc(teacherId).get();
+              if (teacherDoc.exists) {
+                const teacherData = teacherDoc.data();
+                classTeacher = {
+                  id: teacherId,
+                  name: teacherData?.fullName || teacherData?.nameWithInitials || '',
+                };
+              }
+            }
+          }
+        }
+
+        return {
+          id: childDoc.id,
+          name: childData.fullName || '',
+          className: childData.className || '',
+          classTeacher,
+        };
+      });
+
+      const children = await Promise.all(childrenPromises);
+      return children.filter((child) => child !== null);
+    } catch (error: any) {
+      logger.error('Get parent children error:', error);
+      if (error instanceof ApiErrorResponse) {
+        throw error;
+      }
+      throw new ApiErrorResponse('FETCH_FAILED', 'Failed to fetch parent children', 500);
+    }
+  }
+
   // Helper method
   private generateInitials(name: string): string {
     const parts = name.split(' ');

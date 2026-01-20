@@ -85,6 +85,8 @@ export default function ExamsPage() {
       console.error('Fetch exams error:', err)
       if (err.message.includes('Token refresh failed') || err.message.includes('login')) {
         setError("Session expired. Please login again.")
+      } else if (err.message.includes('Unable to connect to the server')) {
+        setError("Cannot connect to the backend server. Please check if the server is running and the API URL is correct.")
       } else {
         setError(err.message || 'Failed to load exams')
       }

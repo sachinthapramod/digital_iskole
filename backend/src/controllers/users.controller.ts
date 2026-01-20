@@ -235,6 +235,33 @@ export class UsersController {
       next(error);
     }
   }
+
+  async getParentChildren(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) {
+        sendError(res, 'AUTH_UNAUTHORIZED', 'User not authenticated', 401);
+        return;
+      }
+
+      const { id } = req.params;
+      const userRole = req.user.role;
+
+      // If id is "me" or user is parent, get their own children
+      if (id === 'me' || userRole === 'parent') {
+        const children = await usersService.getParentChildrenByUserId(req.user.uid);
+        sendSuccess(res, { children }, 'Children fetched successfully');
+        return;
+      }
+
+      // For admin/teacher accessing specific parent's children, verify authorization
+      // (Parents are already handled above)
+      const children = await usersService.getParentChildren(id);
+      sendSuccess(res, { children }, 'Children fetched successfully');
+    } catch (error: any) {
+      logger.error('Get parent children controller error:', error);
+      next(error);
+    }
+  }
 }
 
 export default new UsersController();

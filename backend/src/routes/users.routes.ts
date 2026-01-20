@@ -55,10 +55,8 @@ router.get('/parents/:id', requireAdmin, usersController.getParent.bind(usersCon
 router.put('/parents/:id', requireAdmin, usersController.updateParent.bind(usersController));
 router.delete('/parents/:id', requireAdmin, usersController.deleteParent.bind(usersController));
 
-// Keep placeholder routes for future implementation
-router.get('/parents/:id/children', authenticateToken, (_req, res) => {
-  res.json({ message: 'Parent children - to be implemented' });
-});
+// Get parent's children (use "me" to get current user's children)
+router.get('/parents/:id/children', authenticateToken, usersController.getParentChildren.bind(usersController));
 
 router.post('/parents/:id/children', requireAdmin, (_req, res) => {
   res.json({ message: 'Link child - to be implemented' });

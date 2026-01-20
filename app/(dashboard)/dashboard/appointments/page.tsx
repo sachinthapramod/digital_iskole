@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -20,79 +20,46 @@ import {
 } from "@/components/ui/dialog"
 import { useLanguage } from "@/lib/i18n/context"
 import { useAuth } from "@/lib/auth/context"
+import { apiRequest } from "@/lib/api/client"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Loader2, AlertCircle, CheckCircle2 } from "lucide-react"
 import { Calendar, Clock, Plus, Check, X, User } from "lucide-react"
 
-// Mock data
-const mockAppointments = [
-  {
-    id: "1",
-    parent: "Mr. Nimal Silva",
-    teacher: "Mrs. Kumari Perera",
-    student: "Kasun Silva",
-    date: "2024-12-14",
-    time: "10:00 AM",
-    reason: "Discuss academic progress",
-    status: "pending",
-  },
-  {
-    id: "2",
-    parent: "Mrs. Malini Fernando",
-    teacher: "Mr. Amal Kumar",
-    student: "Priya Fernando",
-    date: "2024-12-15",
-    time: "2:00 PM",
-    reason: "Attendance concerns",
-    status: "approved",
-  },
-  {
-    id: "3",
-    parent: "Mr. Ruwan Bandara",
-    teacher: "Mrs. Kumari Perera",
-    student: "Dinesh Bandara",
-    date: "2024-12-13",
-    time: "11:00 AM",
-    reason: "Career guidance discussion",
-    status: "completed",
-  },
-  {
-    id: "4",
-    parent: "Mrs. Sithara Mendis",
-    teacher: "Mr. Amal Kumar",
-    student: "Nuwan Mendis",
-    date: "2024-12-16",
-    time: "3:00 PM",
-    reason: "Behavioral concerns",
-    status: "rejected",
-  },
-]
+interface Child {
+  id: string;
+  name: string;
+  className: string;
+  classTeacher: {
+    id: string;
+    name: string;
+  };
+}
 
-const mockParentChildren = [
-  {
-    id: "1",
-    name: "Kasun Silva",
-    class: "Grade 10 - A",
-    classTeacher: {
-      id: "t1",
-      name: "Mrs. Kumari Perera",
-    },
-  },
-  {
-    id: "2",
-    name: "Nimali Silva",
-    class: "Grade 8 - B",
-    classTeacher: {
-      id: "t2",
-      name: "Mr. Amal Kumar",
-    },
-  },
-]
+interface Appointment {
+  id: string;
+  parentId?: string;
+  parentName?: string;
+  teacherId?: string;
+  teacherName?: string;
+  studentId?: string;
+  studentName: string;
+  classId?: string;
+  className?: string;
+  date: string;
+  time: string;
+  reason: string;
+  status: "pending" | "approved" | "rejected" | "completed" | "cancelled";
+  rejectionReason?: string;
+  notes?: string;
+}
 
-type AppointmentStatus = "pending" | "approved" | "rejected" | "completed"
+type AppointmentStatus = "pending" | "approved" | "rejected" | "completed" | "cancelled"
 
 export default function AppointmentsPage() {
   const { t } = useLanguage()
   const { user } = useAuth()
-  const [appointments, setAppointments] = useState(mockAppointments)
+  const [appointments, setAppointments] = useState<Appointment[]>([])
+  const [children, setChildren] = useState<Child[]>([])
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedChild, setSelectedChild] = useState("")
   const [newAppointment, setNewAppointment] = useState({
@@ -100,18 +67,79 @@ export default function AppointmentsPage() {
     time: "",
     reason: "",
   })
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetchAppointments()
+    if (user?.role === 'parent') {
+      fetchChildren()
+    }
+  }, [user])
+
+  const fetchAppointments = async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      const response = await apiRequest('/appointments')
+      const data = await response.json()
+
+      if (response.ok && data.data?.appointments) {
+        setAppointments(data.data.appointments)
+      } else {
+        setError(data.message || 'Failed to fetch appointments')
+      }
+    } catch (err: any) {
+      console.error('Fetch appointments error:', err)
+      setError(err.message || 'Failed to load appointments')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const fetchChildren = async () => {
+    try {
+      if (!user) {
+        console.log('No user found, cannot fetch children')
+        return
+      }
+
+      console.log('Fetching children for user:', user.id, user.role)
+
+      // Get parent's children using "me" endpoint
+      const response = await apiRequest('/users/parents/me/children')
+      const data = await response.json()
+
+      console.log('Children response:', { status: response.status, data })
+
+      if (response.ok && data.data?.children) {
+        console.log('Children loaded:', data.data.children)
+        setChildren(data.data.children)
+      } else {
+        console.error('Failed to fetch children:', data)
+        setError(data.message || 'Failed to load children')
+      }
+    } catch (err: any) {
+      console.error('Fetch children error:', err)
+      setError(err.message || 'Failed to load children')
+    }
+  }
 
   const getSelectedChildTeacher = () => {
-    const child = mockParentChildren.find((c) => c.id === selectedChild)
+    const child = children.find((c) => c.id === selectedChild)
     return child?.classTeacher
   }
 
   const getStatusBadge = (status: AppointmentStatus) => {
-    const statusConfig = {
+    const statusConfig: Record<AppointmentStatus, { label: string; variant?: "secondary" | "destructive" | "outline"; className?: string }> = {
       pending: { label: t("pending"), variant: "secondary" as const },
       approved: { label: t("approved"), className: "bg-success text-success-foreground" },
       rejected: { label: t("rejected"), variant: "destructive" as const },
       completed: { label: t("completed"), variant: "outline" as const },
+      cancelled: { label: "Cancelled", variant: "outline" as const },
     }
     const config = statusConfig[status]
     return (
@@ -121,28 +149,91 @@ export default function AppointmentsPage() {
     )
   }
 
-  const handleStatusChange = (id: string, status: AppointmentStatus) => {
-    setAppointments((prev) => prev.map((apt) => (apt.id === id ? { ...apt, status } : apt)))
+  const handleStatusChange = async (id: string, status: "approved" | "rejected" | "completed") => {
+    try {
+      setIsSaving(true)
+      setError(null)
+
+      const response = await apiRequest(`/appointments/${id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.data?.appointment) {
+        setAppointments((prev) => prev.map((apt) => (apt.id === id ? data.data.appointment : apt)))
+        setSuccess(`Appointment ${status} successfully!`)
+        setTimeout(() => setSuccess(null), 3000)
+      } else {
+        setError(data.message || `Failed to ${status} appointment`)
+        setTimeout(() => setError(null), 5000)
+      }
+    } catch (err: any) {
+      console.error('Update appointment status error:', err)
+      setError(`Failed to ${status} appointment`)
+      setTimeout(() => setError(null), 5000)
+    } finally {
+      setIsSaving(false)
+    }
   }
 
-  const handleCreateAppointment = () => {
-    const child = mockParentChildren.find((c) => c.id === selectedChild)
-    if (!child) return
-
-    const newApt = {
-      id: String(appointments.length + 1),
-      parent: "Mr. Nimal Silva", // Mock logged-in parent
-      teacher: child.classTeacher.name,
-      student: child.name,
-      date: newAppointment.date,
-      time: newAppointment.time,
-      reason: newAppointment.reason,
-      status: "pending",
+  const handleCreateAppointment = async () => {
+    if (!selectedChild) {
+      setError('Please select a child')
+      return
     }
-    setAppointments((prev) => [...prev, newApt])
-    setDialogOpen(false)
-    setSelectedChild("")
-    setNewAppointment({ date: "", time: "", reason: "" })
+
+    if (!newAppointment.date || !newAppointment.time || !newAppointment.reason) {
+      setError('Please fill in all fields')
+      return
+    }
+
+    try {
+      setIsSaving(true)
+      setError(null)
+
+      const requestData = {
+        studentId: selectedChild,
+        date: newAppointment.date,
+        time: newAppointment.time,
+        reason: newAppointment.reason,
+      }
+
+      console.log('Creating appointment with data:', requestData)
+
+      const response = await apiRequest('/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData),
+      })
+
+      const data = await response.json()
+      console.log('Appointment creation response:', { status: response.status, data })
+
+      if (response.ok && data.data?.appointment) {
+        setAppointments((prev) => [data.data.appointment, ...prev])
+        setDialogOpen(false)
+        setSelectedChild("")
+        setNewAppointment({ date: "", time: "", reason: "" })
+        setSuccess('Appointment requested successfully!')
+        setTimeout(() => setSuccess(null), 3000)
+        // Refresh appointments list
+        fetchAppointments()
+      } else {
+        const errorMsg = data.message || data.error?.message || 'Failed to create appointment'
+        console.error('Appointment creation failed:', errorMsg)
+        setError(errorMsg)
+        setTimeout(() => setError(null), 5000)
+      }
+    } catch (err: any) {
+      console.error('Create appointment error:', err)
+      setError(err.message || 'Failed to create appointment. Please try again.')
+      setTimeout(() => setError(null), 5000)
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleDialogChange = (open: boolean) => {
@@ -153,12 +244,8 @@ export default function AppointmentsPage() {
     }
   }
 
-  const filteredAppointments =
-    user?.role === "teacher"
-      ? appointments.filter((apt) => apt.teacher === "Mrs. Kumari Perera") // Mock filter for logged-in teacher
-      : user?.role === "parent"
-        ? appointments.filter((apt) => apt.parent === "Mr. Nimal Silva") // Mock filter for logged-in parent
-        : appointments
+  // Appointments are already filtered by the backend based on user role
+  const filteredAppointments = appointments
 
   const pendingCount = filteredAppointments.filter((apt) => apt.status === "pending").length
   const approvedCount = filteredAppointments.filter((apt) => apt.status === "approved").length
@@ -204,11 +291,15 @@ export default function AppointmentsPage() {
                       <SelectValue placeholder="Select your child" />
                     </SelectTrigger>
                     <SelectContent>
-                      {mockParentChildren.map((child) => (
-                        <SelectItem key={child.id} value={child.id}>
-                          {child.name} - {child.class}
-                        </SelectItem>
-                      ))}
+                      {children.length === 0 ? (
+                        <SelectItem value="no-children" disabled>No children found</SelectItem>
+                      ) : (
+                        children.map((child) => (
+                          <SelectItem key={child.id} value={child.id}>
+                            {child.name} - {child.className}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -223,7 +314,7 @@ export default function AppointmentsPage() {
                       <div className="min-w-0">
                         <p className="font-medium text-foreground truncate">{selectedTeacher.name}</p>
                         <p className="text-sm text-muted-foreground truncate">
-                          Class Teacher - {mockParentChildren.find((c) => c.id === selectedChild)?.class}
+                          Class Teacher - {children.find((c) => c.id === selectedChild)?.className}
                         </p>
                       </div>
                     </div>
@@ -277,16 +368,46 @@ export default function AppointmentsPage() {
                 </Button>
                 <Button
                   onClick={handleCreateAppointment}
-                  disabled={!selectedChild || !newAppointment.date || !newAppointment.time || !newAppointment.reason}
+                  disabled={!selectedChild || !newAppointment.date || !newAppointment.time || !newAppointment.reason || isSaving}
                   className="w-full sm:w-auto"
                 >
-                  {t("submit")}
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    t("submit")
+                  )}
                 </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
         )}
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* Success Message */}
+      {success && (
+        <Alert className="bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800">
+          <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+          <AlertDescription className="text-green-800 dark:text-green-200">{success}</AlertDescription>
+        </Alert>
+      )}
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <>
 
       {/* Stats Cards */}
       <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
@@ -372,11 +493,11 @@ export default function AppointmentsPage() {
                       <div key={appointment.id} className="p-3 rounded-lg border border-border bg-card">
                         <div className="flex items-start justify-between mb-2">
                           <div>
-                            <p className="font-medium text-sm text-foreground">{appointment.student}</p>
+                            <p className="font-medium text-sm text-foreground">{appointment.studentName}</p>
                             <p className="text-xs text-muted-foreground">
-                              {!isParent && appointment.parent}
+                              {!isParent && appointment.parentName}
                               {!isTeacher && !isParent && " • "}
-                              {!isTeacher && appointment.teacher}
+                              {!isTeacher && appointment.teacherName}
                             </p>
                           </div>
                           {getStatusBadge(appointment.status as AppointmentStatus)}
@@ -398,6 +519,7 @@ export default function AppointmentsPage() {
                               size="sm"
                               className="bg-success hover:bg-success/80 flex-1"
                               onClick={() => handleStatusChange(appointment.id, "approved")}
+                              disabled={isSaving}
                             >
                               <Check className="h-4 w-4 mr-1" />
                               Approve
@@ -407,6 +529,7 @@ export default function AppointmentsPage() {
                               variant="destructive"
                               className="flex-1"
                               onClick={() => handleStatusChange(appointment.id, "rejected")}
+                              disabled={isSaving}
                             >
                               <X className="h-4 w-4 mr-1" />
                               Reject
@@ -419,6 +542,7 @@ export default function AppointmentsPage() {
                             variant="outline"
                             className="w-full mt-2 bg-transparent"
                             onClick={() => handleStatusChange(appointment.id, "completed")}
+                            disabled={isSaving}
                           >
                             Mark Complete
                           </Button>
@@ -454,9 +578,9 @@ export default function AppointmentsPage() {
                         .filter((apt) => tab === "all" || apt.status === tab)
                         .map((appointment) => (
                           <tr key={appointment.id} className="border-b border-border last:border-0">
-                            {!isParent && <td className="py-3 px-2 text-sm text-foreground">{appointment.parent}</td>}
-                            {!isTeacher && <td className="py-3 px-2 text-sm text-foreground">{appointment.teacher}</td>}
-                            <td className="py-3 px-2 text-sm text-foreground">{appointment.student}</td>
+                            {!isParent && <td className="py-3 px-2 text-sm text-foreground">{appointment.parentName}</td>}
+                            {!isTeacher && <td className="py-3 px-2 text-sm text-foreground">{appointment.teacherName}</td>}
+                            <td className="py-3 px-2 text-sm text-foreground">{appointment.studentName}</td>
                             <td className="py-3 px-2 text-sm text-muted-foreground">
                               <div className="flex items-center gap-2">
                                 <Calendar className="h-4 w-4" />
@@ -477,6 +601,7 @@ export default function AppointmentsPage() {
                                       size="sm"
                                       className="bg-success hover:bg-success/80"
                                       onClick={() => handleStatusChange(appointment.id, "approved")}
+                                      disabled={isSaving}
                                     >
                                       <Check className="h-4 w-4" />
                                     </Button>
@@ -484,6 +609,7 @@ export default function AppointmentsPage() {
                                       size="sm"
                                       variant="destructive"
                                       onClick={() => handleStatusChange(appointment.id, "rejected")}
+                                      disabled={isSaving}
                                     >
                                       <X className="h-4 w-4" />
                                     </Button>
@@ -494,6 +620,7 @@ export default function AppointmentsPage() {
                                     size="sm"
                                     variant="outline"
                                     onClick={() => handleStatusChange(appointment.id, "completed")}
+                                    disabled={isSaving}
                                   >
                                     Mark Complete
                                   </Button>
@@ -510,6 +637,8 @@ export default function AppointmentsPage() {
           </Tabs>
         </CardContent>
       </Card>
+        </>
+      )}
     </div>
   )
 }

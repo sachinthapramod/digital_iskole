@@ -5,6 +5,11 @@
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 
+// Log API URL in development for debugging
+if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+  console.log('API URL:', API_URL);
+}
+
 let isRefreshing = false;
 let refreshPromise: Promise<string | null> | null = null;
 
@@ -86,10 +91,32 @@ export async function apiRequest(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  let response = await fetch(`${API_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${endpoint}`, {
+      ...options,
+      headers,
+    });
+  } catch (error: any) {
+    // Network error or CORS issue
+    console.error('API request failed:', {
+      endpoint: `${API_URL}${endpoint}`,
+      error: error.message,
+      API_URL,
+    });
+    
+    // Provide more helpful error message
+    if (error.message === 'Failed to fetch') {
+      throw new Error(
+        `Unable to connect to the server. Please check:\n` +
+        `1. The backend server is running\n` +
+        `2. The API URL is correct: ${API_URL}\n` +
+        `3. CORS is properly configured`
+      );
+    }
+    
+    throw error;
+  }
 
   // If token expired, try to refresh and retry
   if (response.status === 401) {

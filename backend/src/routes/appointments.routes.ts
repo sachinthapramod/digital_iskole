@@ -1,47 +1,36 @@
 import { Router } from 'express';
 import { authenticateToken } from '../middleware/auth.middleware';
-import { requireTeacher, requireParent } from '../middleware/role.middleware';
+import { requireParent, requireAdminOrTeacher } from '../middleware/role.middleware';
+import appointmentsController from '../controllers/appointments.controller';
 
 const router = Router();
 
 router.use(authenticateToken);
 
-router.get('/', authenticateToken, (_req, res) => {
-  res.json({ message: 'Appointments list - to be implemented' });
-});
+// Get all appointments (filtered by role)
+router.get('/', appointmentsController.getAppointments.bind(appointmentsController));
 
-router.post('/', requireParent, (_req, res) => {
-  res.json({ message: 'Create appointment - to be implemented' });
-});
+// Get single appointment
+router.get('/:id', appointmentsController.getAppointment.bind(appointmentsController));
 
-router.get('/:id', authenticateToken, (_req, res) => {
-  res.json({ message: 'Get appointment - to be implemented' });
-});
+// Create appointment (Parent only)
+router.post('/', requireParent, appointmentsController.createAppointment.bind(appointmentsController));
 
-router.patch('/:id/status', requireTeacher, (_req, res) => {
-  res.json({ message: 'Update appointment status - to be implemented' });
-});
+// Update appointment status (Teacher/Admin only)
+router.patch('/:id/status', requireAdminOrTeacher, appointmentsController.updateAppointmentStatus.bind(appointmentsController));
 
-router.patch('/:id/cancel', requireParent, (_req, res) => {
-  res.json({ message: 'Cancel appointment - to be implemented' });
-});
+// Cancel appointment (Parent only)
+router.patch('/:id/cancel', requireParent, appointmentsController.cancelAppointment.bind(appointmentsController));
 
-router.get('/teacher', requireTeacher, (_req, res) => {
-  res.json({ message: 'Teacher appointments - to be implemented' });
-});
+// Get pending count
+router.get('/pending/count', appointmentsController.getPendingCount.bind(appointmentsController));
 
-router.get('/parent', requireParent, (_req, res) => {
-  res.json({ message: 'Parent appointments - to be implemented' });
-});
-
-router.get('/pending/count', authenticateToken, (_req, res) => {
-  res.json({ message: 'Pending count - to be implemented' });
-});
-
+// Available slots (to be implemented)
 router.get('/available-slots', requireParent, (_req, res) => {
   res.json({ message: 'Available slots - to be implemented' });
 });
 
 export default router;
+
 
 
