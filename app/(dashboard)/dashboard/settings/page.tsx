@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -12,6 +12,9 @@ import { Badge } from "@/components/ui/badge"
 import { useLanguage } from "@/lib/i18n/context"
 import { useTheme } from "@/lib/theme/context"
 import { useAuth } from "@/lib/auth/context"
+import { apiRequest } from "@/lib/api/client"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Loader2, AlertCircle, CheckCircle2 } from "lucide-react"
 import {
   Globe,
   Moon,
@@ -25,7 +28,6 @@ import {
   Trash2,
   Plus,
   Calendar,
-  CheckCircle2,
 } from "lucide-react"
 import {
   Dialog,
@@ -80,17 +82,67 @@ export default function SettingsPage() {
   const [editingGrade, setEditingGrade] = useState<GradeScale | null>(null)
   const [newGrade, setNewGrade] = useState({ grade: "", minMarks: 0, maxMarks: 100, description: "" })
 
-  const [academicYears, setAcademicYears] = useState<AcademicYear[]>(defaultAcademicYears)
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([])
   const [yearDialogOpen, setYearDialogOpen] = useState(false)
   const [editingYear, setEditingYear] = useState<AcademicYear | null>(null)
   const [newYear, setNewYear] = useState({ year: "", startDate: "", endDate: "" })
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
 
   const isAdmin = user?.role === "admin"
 
+  // Fetch data on mount
+  useEffect(() => {
+    if (isAdmin) {
+      fetchGradingScale()
+      fetchAcademicYears()
+    }
+  }, [isAdmin])
+
+  const fetchGradingScale = async () => {
+    try {
+      const response = await apiRequest('/settings/grading')
+      const data = await response.json()
+      
+      if (response.ok && data.data?.grades) {
+        setGradeScale(data.data.grades)
+      }
+    } catch (err: any) {
+      console.error('Fetch grading scale error:', err)
+      // Use default grades on error
+      setGradeScale(defaultGradeScale)
+    }
+  }
+
+  const fetchAcademicYears = async () => {
+    try {
+      setIsLoading(true)
+      const response = await apiRequest('/settings/academic-years')
+      const data = await response.json()
+      
+      if (response.ok && data.data?.years) {
+        setAcademicYears(data.data.years)
+      } else {
+        setAcademicYears(defaultAcademicYears)
+      }
+    } catch (err: any) {
+      console.error('Fetch academic years error:', err)
+      setAcademicYears(defaultAcademicYears)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const handleAddGrade = () => {
-    setGradeScale([...gradeScale, { ...newGrade, id: String(gradeScale.length + 1) }])
+    const newGradeItem = { ...newGrade, id: String(gradeScale.length + 1) }
+    const updatedGrades = [...gradeScale, newGradeItem]
+    setGradeScale(updatedGrades)
     setGradeDialogOpen(false)
     setNewGrade({ grade: "", minMarks: 0, maxMarks: 100, description: "" })
+    // Save to backend
+    saveGradingScale(updatedGrades)
   }
 
   const handleEditGrade = (grade: GradeScale) => {
@@ -100,30 +152,82 @@ export default function SettingsPage() {
 
   const handleSaveGradeEdit = () => {
     if (editingGrade) {
-      setGradeScale(gradeScale.map((g) => (g.id === editingGrade.id ? editingGrade : g)))
+      const updatedGrades = gradeScale.map((g) => (g.id === editingGrade.id ? editingGrade : g))
+      setGradeScale(updatedGrades)
       setEditingGrade(null)
       setGradeDialogOpen(false)
+      // Save to backend
+      saveGradingScale(updatedGrades)
     }
   }
 
   const handleDeleteGrade = (id: string) => {
     if (confirm("Are you sure you want to delete this grade?")) {
-      setGradeScale(gradeScale.filter((g) => g.id !== id))
+      const updatedGrades = gradeScale.filter((g) => g.id !== id)
+      setGradeScale(updatedGrades)
+      // Save to backend
+      saveGradingScale(updatedGrades)
     }
   }
 
-  const handleAddYear = () => {
-    const newAcademicYear: AcademicYear = {
-      id: String(academicYears.length + 1),
-      year: newYear.year,
-      startDate: newYear.startDate,
-      endDate: newYear.endDate,
-      isCurrent: false,
-      status: "upcoming",
+  const saveGradingScale = async (grades: GradeScale[]) => {
+    try {
+      const response = await apiRequest('/settings/grading', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ grades }),
+      })
+      
+      const data = await response.json()
+      
+      if (response.ok) {
+        setSuccess('Grading scale saved successfully!')
+        setTimeout(() => setSuccess(null), 3000)
+      } else {
+        setError(data.message || 'Failed to save grading scale')
+        setTimeout(() => setError(null), 5000)
+      }
+    } catch (err: any) {
+      console.error('Save grading scale error:', err)
+      setError('Failed to save grading scale')
+      setTimeout(() => setError(null), 5000)
     }
-    setAcademicYears([...academicYears, newAcademicYear])
-    setYearDialogOpen(false)
-    setNewYear({ year: "", startDate: "", endDate: "" })
+  }
+
+  const handleAddYear = async () => {
+    try {
+      setIsSaving(true)
+      setError(null)
+      
+      const response = await apiRequest('/settings/academic-years', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          year: newYear.year,
+          startDate: newYear.startDate,
+          endDate: newYear.endDate,
+        }),
+      })
+      
+      const data = await response.json()
+      
+      if (response.ok && data.data?.year) {
+        setAcademicYears([...academicYears, data.data.year])
+        setYearDialogOpen(false)
+        setNewYear({ year: "", startDate: "", endDate: "" })
+        setSuccess('Academic year created successfully!')
+        setTimeout(() => setSuccess(null), 3000)
+      } else {
+        setError(data.message || 'Failed to create academic year')
+        setTimeout(() => setError(null), 5000)
+      }
+    } catch (err: any) {
+      console.error('Add academic year error:', err)
+      setError('Failed to create academic year')
+      setTimeout(() => setError(null), 5000)
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleEditYear = (year: AcademicYear) => {
@@ -131,37 +235,131 @@ export default function SettingsPage() {
     setYearDialogOpen(true)
   }
 
-  const handleSaveYearEdit = () => {
-    if (editingYear) {
-      setAcademicYears(academicYears.map((y) => (y.id === editingYear.id ? editingYear : y)))
-      setEditingYear(null)
-      setYearDialogOpen(false)
+  const handleSaveYearEdit = async () => {
+    if (!editingYear) return
+    
+    try {
+      setIsSaving(true)
+      setError(null)
+      
+      const response = await apiRequest(`/settings/academic-years/${editingYear.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          year: editingYear.year,
+          startDate: editingYear.startDate,
+          endDate: editingYear.endDate,
+        }),
+      })
+      
+      const data = await response.json()
+      
+      if (response.ok && data.data?.year) {
+        setAcademicYears(academicYears.map((y) => (y.id === editingYear.id ? data.data.year : y)))
+        setEditingYear(null)
+        setYearDialogOpen(false)
+        setSuccess('Academic year updated successfully!')
+        setTimeout(() => setSuccess(null), 3000)
+      } else {
+        setError(data.message || 'Failed to update academic year')
+        setTimeout(() => setError(null), 5000)
+      }
+    } catch (err: any) {
+      console.error('Update academic year error:', err)
+      setError('Failed to update academic year')
+      setTimeout(() => setError(null), 5000)
+    } finally {
+      setIsSaving(false)
     }
   }
 
-  const handleDeleteYear = (id: string) => {
+  const handleDeleteYear = async (id: string) => {
     const year = academicYears.find((y) => y.id === id)
     if (year?.isCurrent) {
-      alert("Cannot delete the current academic year. Please set another year as current first.")
+      setError("Cannot delete the current academic year. Please set another year as current first.")
+      setTimeout(() => setError(null), 5000)
       return
     }
     if (confirm("Are you sure you want to delete this academic year?")) {
-      setAcademicYears(academicYears.filter((y) => y.id !== id))
+      try {
+        setIsSaving(true)
+        setError(null)
+        
+        const response = await apiRequest(`/settings/academic-years/${id}`, {
+          method: 'DELETE',
+        })
+        
+        const data = await response.json()
+        
+        if (response.ok) {
+          setAcademicYears(academicYears.filter((y) => y.id !== id))
+          setSuccess('Academic year deleted successfully!')
+          setTimeout(() => setSuccess(null), 3000)
+        } else {
+          setError(data.message || 'Failed to delete academic year')
+          setTimeout(() => setError(null), 5000)
+        }
+      } catch (err: any) {
+        console.error('Delete academic year error:', err)
+        setError('Failed to delete academic year')
+        setTimeout(() => setError(null), 5000)
+      } finally {
+        setIsSaving(false)
+      }
     }
   }
 
-  const handleSetCurrentYear = (id: string) => {
-    setAcademicYears(
-      academicYears.map((y) => ({
-        ...y,
-        isCurrent: y.id === id,
-        status: y.id === id ? "active" : new Date(y.endDate) < new Date() ? "completed" : "upcoming",
-      })),
-    )
+  const handleSetCurrentYear = async (id: string) => {
+    try {
+      setIsSaving(true)
+      setError(null)
+      
+      const response = await apiRequest(`/settings/academic-years/${id}/set-current`, {
+        method: 'PATCH',
+      })
+      
+      const data = await response.json()
+      
+      if (response.ok && data.data?.year) {
+        setAcademicYears(
+          academicYears.map((y) => ({
+            ...y,
+            isCurrent: y.id === id,
+            status: y.id === id ? "active" : new Date(y.endDate) < new Date() ? "completed" : "upcoming",
+          })),
+        )
+        setSuccess('Current academic year updated successfully!')
+        setTimeout(() => setSuccess(null), 3000)
+      } else {
+        setError(data.message || 'Failed to set current academic year')
+        setTimeout(() => setError(null), 5000)
+      }
+    } catch (err: any) {
+      console.error('Set current academic year error:', err)
+      setError('Failed to set current academic year')
+      setTimeout(() => setError(null), 5000)
+    } finally {
+      setIsSaving(false)
+    }
   }
 
-  const handleSaveSettings = () => {
-    alert("Settings saved successfully!")
+  const handleSaveSettings = async () => {
+    try {
+      setIsSaving(true)
+      setError(null)
+      
+      // Save grading scale
+      await saveGradingScale(gradeScale)
+      
+      setSuccess('All settings saved successfully!')
+      setTimeout(() => setSuccess(null), 3000)
+    } catch (err: any) {
+      console.error('Save settings error:', err)
+      setError('Failed to save settings')
+      setTimeout(() => setError(null), 5000)
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   return (
@@ -171,6 +369,22 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-bold text-foreground">{t("settings")}</h1>
         <p className="text-muted-foreground">Manage application preferences</p>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* Success Message */}
+      {success && (
+        <Alert className="bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800">
+          <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+          <AlertDescription className="text-green-800 dark:text-green-200">{success}</AlertDescription>
+        </Alert>
+      )}
 
       <div className="grid gap-6">
         {/* Appearance */}
@@ -296,9 +510,16 @@ export default function SettingsPage() {
                       </Button>
                       <Button
                         onClick={handleAddYear}
-                        disabled={!newYear.year || !newYear.startDate || !newYear.endDate}
+                        disabled={!newYear.year || !newYear.startDate || !newYear.endDate || isSaving}
                       >
-                        {t("add")}
+                        {isSaving ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Saving...
+                          </>
+                        ) : (
+                          t("add")
+                        )}
                       </Button>
                     </DialogFooter>
                   </DialogContent>
@@ -306,80 +527,94 @@ export default function SettingsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Year</th>
-                      <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Duration</th>
-                      <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("status")}</th>
-                      <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Current</th>
-                      <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("actions")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {academicYears
-                      .sort((a, b) => b.year.localeCompare(a.year))
-                      .map((year) => (
-                        <tr key={year.id} className="border-b border-border last:border-0">
-                          <td className="py-3 px-2">
-                            <span className="font-medium text-foreground">{year.year}</span>
-                          </td>
-                          <td className="py-3 px-2 text-sm text-muted-foreground">
-                            {new Date(year.startDate).toLocaleDateString()} -{" "}
-                            {new Date(year.endDate).toLocaleDateString()}
-                          </td>
-                          <td className="py-3 px-2">
-                            <Badge
-                              variant="secondary"
-                              className={
-                                year.status === "active"
-                                  ? "bg-success text-success-foreground"
-                                  : year.status === "upcoming"
-                                    ? "bg-primary text-primary-foreground"
-                                    : "bg-secondary"
-                              }
-                            >
-                              {year.status === "active"
-                                ? "Active"
-                                : year.status === "upcoming"
-                                  ? "Upcoming"
-                                  : "Completed"}
-                            </Badge>
-                          </td>
-                          <td className="py-3 px-2">
-                            {year.isCurrent ? (
-                              <Badge className="bg-success text-success-foreground">
-                                <CheckCircle2 className="h-3 w-3 mr-1" />
-                                Current
-                              </Badge>
-                            ) : (
-                              <Button size="sm" variant="outline" onClick={() => handleSetCurrentYear(year.id)}>
-                                Set as Current
-                              </Button>
-                            )}
-                          </td>
-                          <td className="py-3 px-2">
-                            <div className="flex gap-2">
-                              <Button size="sm" variant="ghost" onClick={() => handleEditYear(year)}>
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-destructive"
-                                onClick={() => handleDeleteYear(year.id)}
-                                disabled={year.isCurrent}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Year</th>
+                        <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Duration</th>
+                        <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("status")}</th>
+                        <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Current</th>
+                        <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("actions")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {academicYears.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="py-8 text-center text-muted-foreground">
+                            No academic years found. Add one to get started.
                           </td>
                         </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
+                      ) : (
+                        academicYears
+                          .sort((a, b) => b.year.localeCompare(a.year))
+                          .map((year) => (
+                            <tr key={year.id} className="border-b border-border last:border-0">
+                              <td className="py-3 px-2">
+                                <span className="font-medium text-foreground">{year.year}</span>
+                              </td>
+                              <td className="py-3 px-2 text-sm text-muted-foreground">
+                                {new Date(year.startDate).toLocaleDateString()} -{" "}
+                                {new Date(year.endDate).toLocaleDateString()}
+                              </td>
+                              <td className="py-3 px-2">
+                                <Badge
+                                  variant="secondary"
+                                  className={
+                                    year.status === "active"
+                                      ? "bg-success text-success-foreground"
+                                      : year.status === "upcoming"
+                                        ? "bg-primary text-primary-foreground"
+                                        : "bg-secondary"
+                                  }
+                                >
+                                  {year.status === "active"
+                                    ? "Active"
+                                    : year.status === "upcoming"
+                                      ? "Upcoming"
+                                      : "Completed"}
+                                </Badge>
+                              </td>
+                              <td className="py-3 px-2">
+                                {year.isCurrent ? (
+                                  <Badge className="bg-success text-success-foreground">
+                                    <CheckCircle2 className="h-3 w-3 mr-1" />
+                                    Current
+                                  </Badge>
+                                ) : (
+                                  <Button size="sm" variant="outline" onClick={() => handleSetCurrentYear(year.id)}>
+                                    Set as Current
+                                  </Button>
+                                )}
+                              </td>
+                              <td className="py-3 px-2">
+                                <div className="flex gap-2">
+                                  <Button size="sm" variant="ghost" onClick={() => handleEditYear(year)}>
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="text-destructive"
+                                    onClick={() => handleDeleteYear(year.id)}
+                                    disabled={year.isCurrent}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -428,7 +663,16 @@ export default function SettingsPage() {
               <Button variant="outline" onClick={() => setEditingYear(null)}>
                 {t("cancel")}
               </Button>
-              <Button onClick={handleSaveYearEdit}>{t("save")}</Button>
+              <Button onClick={handleSaveYearEdit} disabled={isSaving}>
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  t("save")
+                )}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -573,9 +817,9 @@ export default function SettingsPage() {
                           </td>
                         </tr>
                       ))}
-                  </tbody>
-                </table>
-              </div>
+                    </tbody>
+                  </table>
+                </div>
             </CardContent>
           </Card>
         )}
@@ -730,9 +974,18 @@ export default function SettingsPage() {
         </Card>
 
         <div className="flex justify-end">
-          <Button onClick={handleSaveSettings}>
-            <Save className="h-4 w-4 mr-2" />
-            {t("save")} {t("settings")}
+          <Button onClick={handleSaveSettings} disabled={isSaving}>
+            {isSaving ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                {t("save")} {t("settings")}
+              </>
+            )}
           </Button>
         </div>
       </div>

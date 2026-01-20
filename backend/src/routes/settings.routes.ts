@@ -1,50 +1,27 @@
 import { Router } from 'express';
 import { authenticateToken } from '../middleware/auth.middleware';
 import { requireAdmin } from '../middleware/role.middleware';
+import settingsController from '../controllers/settings.controller';
 
 const router = Router();
 
 router.use(authenticateToken);
 
-router.get('/grading', (_req, res) => {
-  res.json({ message: 'Get grading scale - to be implemented' });
-});
+// Grading Scale Routes
+router.get('/grading', settingsController.getGradingScale.bind(settingsController));
+router.put('/grading', requireAdmin, settingsController.updateGradingScale.bind(settingsController));
 
-router.put('/grading', requireAdmin, (_req, res) => {
-  res.json({ message: 'Update grading scale - to be implemented' });
-});
+// Academic Years Routes
+router.get('/academic-years', settingsController.getAcademicYears.bind(settingsController));
+router.get('/academic-years/current', settingsController.getCurrentAcademicYear.bind(settingsController));
+router.post('/academic-years', requireAdmin, settingsController.createAcademicYear.bind(settingsController));
+router.put('/academic-years/:id', requireAdmin, settingsController.updateAcademicYear.bind(settingsController));
+router.patch('/academic-years/:id/set-current', requireAdmin, settingsController.setCurrentAcademicYear.bind(settingsController));
+router.delete('/academic-years/:id', requireAdmin, settingsController.deleteAcademicYear.bind(settingsController));
 
-router.get('/academic-years', requireAdmin, (_req, res) => {
-  res.json({ message: 'Academic years list - to be implemented' });
-});
-
-router.post('/academic-years', requireAdmin, (_req, res) => {
-  res.json({ message: 'Create academic year - to be implemented' });
-});
-
-router.put('/academic-years/:id', requireAdmin, (_req, res) => {
-  res.json({ message: 'Update academic year - to be implemented' });
-});
-
-router.delete('/academic-years/:id', requireAdmin, (_req, res) => {
-  res.json({ message: 'Delete academic year - to be implemented' });
-});
-
-router.patch('/academic-years/:id/set-current', requireAdmin, (_req, res) => {
-  res.json({ message: 'Set current academic year - to be implemented' });
-});
-
-router.get('/academic-years/current', (_req, res) => {
-  res.json({ message: 'Get current academic year - to be implemented' });
-});
-
-router.get('/preferences', (_req, res) => {
-  res.json({ message: 'Get preferences - to be implemented' });
-});
-
-router.put('/preferences', (_req, res) => {
-  res.json({ message: 'Update preferences - to be implemented' });
-});
+// User Preferences Routes
+router.get('/preferences', settingsController.getUserPreferences.bind(settingsController));
+router.put('/preferences', settingsController.updateUserPreferences.bind(settingsController));
 
 export default router;
 
