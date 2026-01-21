@@ -373,6 +373,67 @@ export class AttendanceService {
     }
   }
 
+  async getStudentAttendanceHistory(studentId: string, startDate?: string, endDate?: string): Promise<any[]> {
+    try {
+      const studentDoc = await db.collection('students').doc(studentId).get();
+      
+      if (!studentDoc.exists) {
+        throw new ApiErrorResponse('NOT_FOUND', 'Student not found', 404);
+      }
+
+      let query = db.collection('attendance').where('studentId', '==', studentId);
+
+      // If date range is provided, we'll filter in memory to avoid composite index
+      const attendanceSnapshot = await query.get();
+
+      let filteredDocs = attendanceSnapshot.docs;
+
+      if (startDate && endDate) {
+        const startDateObj = new Date(startDate);
+        startDateObj.setHours(0, 0, 0, 0);
+        const startTimestamp = Timestamp.fromDate(startDateObj);
+        
+        const endDateObj = new Date(endDate);
+        endDateObj.setHours(23, 59, 59, 999);
+        const endTimestamp = Timestamp.fromDate(endDateObj);
+
+        filteredDocs = attendanceSnapshot.docs.filter(doc => {
+          const attendanceData = doc.data() as Attendance;
+          const docDate = attendanceData.date as Timestamp;
+          return docDate && docDate >= startTimestamp && docDate <= endTimestamp;
+        });
+      }
+
+      // Sort by date descending
+      filteredDocs.sort((a, b) => {
+        const aDate = (a.data().date as Timestamp)?.toMillis() || 0;
+        const bDate = (b.data().date as Timestamp)?.toMillis() || 0;
+        return bDate - aDate;
+      });
+
+      return filteredDocs.map(doc => {
+        const data = doc.data() as Attendance;
+        const date = data.date as Timestamp;
+        return {
+          id: doc.id,
+          studentId: data.studentId,
+          studentName: data.studentName,
+          className: data.className,
+          date: date.toDate().toISOString().split('T')[0],
+          status: data.status,
+          markedBy: data.markedByName,
+          markedAt: data.updatedAt.toDate().toISOString(),
+        };
+      });
+    } catch (error: any) {
+      logger.error('Get student attendance history error:', error);
+      if (error instanceof ApiErrorResponse) {
+        throw error;
+      }
+      throw new ApiErrorResponse('FETCH_FAILED', 'Failed to fetch attendance history', 500);
+    }
+  }
+
   async getAttendanceHistory(className: string, startDate: string, endDate: string): Promise<any[]> {
     try {
       const startDateObj = new Date(startDate);

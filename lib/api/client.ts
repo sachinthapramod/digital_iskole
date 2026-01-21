@@ -99,19 +99,24 @@ export async function apiRequest(
     });
   } catch (error: any) {
     // Network error or CORS issue
-    console.error('API request failed:', {
+    const errorMessage = error?.message || 'Unknown error'
+    const errorDetails = {
       endpoint: `${API_URL}${endpoint}`,
-      error: error.message,
+      error: errorMessage,
       API_URL,
-    });
+      errorType: error?.name || 'NetworkError',
+    }
+    
+    console.error('API request failed:', errorDetails);
     
     // Provide more helpful error message
-    if (error.message === 'Failed to fetch') {
+    if (errorMessage === 'Failed to fetch' || errorMessage.includes('fetch')) {
       throw new Error(
         `Unable to connect to the server. Please check:\n` +
-        `1. The backend server is running\n` +
+        `1. The backend server is running (http://localhost:3001)\n` +
         `2. The API URL is correct: ${API_URL}\n` +
-        `3. CORS is properly configured`
+        `3. CORS is properly configured\n` +
+        `4. Check browser console for more details`
       );
     }
     

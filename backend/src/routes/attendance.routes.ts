@@ -22,7 +22,10 @@ router.post('/mark/bulk', requireAdminOrTeacher, attendanceController.markBulkAt
 // Get student attendance stats
 router.get('/student/:studentId/stats', authenticateToken, attendanceController.getAttendanceStats.bind(attendanceController));
 
-// Get attendance history for a date range
+// Get student attendance history (accessible to parents for their children, and admin/teacher)
+router.get('/student/:studentId/history', authenticateToken, attendanceController.getStudentAttendanceHistory.bind(attendanceController));
+
+// Get attendance history for a date range (admin/teacher only)
 router.get('/history', requireAdminOrTeacher, attendanceController.getAttendanceHistory.bind(attendanceController));
 
 export default router;

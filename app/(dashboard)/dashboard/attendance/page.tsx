@@ -14,70 +14,21 @@ import { useAuth } from "@/lib/auth/context"
 import { apiRequest } from "@/lib/api/client"
 import { CheckCircle, XCircle, Clock, Save, Search, Calendar, TrendingUp, TrendingDown, Loader2, AlertCircle, Edit, History, ClipboardCheck } from "lucide-react"
 
-const mockParentChildren = [
-  {
-    id: "child-1",
-    name: "Kasun Perera",
-    class: "Grade 10-A",
-    rollNo: "001",
-    admissionNo: "ADM-2020-001",
-    attendanceRate: 94,
-    totalDays: 180,
-    presentDays: 169,
-    absentDays: 8,
-    lateDays: 3,
-    trend: "up",
-    recentAttendance: [
-      { date: "2025-01-13", day: "Monday", status: "present" },
-      { date: "2025-01-12", day: "Sunday", status: "holiday" },
-      { date: "2025-01-11", day: "Saturday", status: "holiday" },
-      { date: "2025-01-10", day: "Friday", status: "present" },
-      { date: "2025-01-09", day: "Thursday", status: "present" },
-      { date: "2025-01-08", day: "Wednesday", status: "late" },
-      { date: "2025-01-07", day: "Tuesday", status: "present" },
-      { date: "2025-01-06", day: "Monday", status: "present" },
-      { date: "2025-01-03", day: "Friday", status: "absent" },
-      { date: "2025-01-02", day: "Thursday", status: "present" },
-    ],
-    monthlyAttendance: [
-      { month: "January", present: 18, absent: 1, late: 1, total: 20 },
-      { month: "December", present: 19, absent: 2, late: 1, total: 22 },
-      { month: "November", present: 20, absent: 1, late: 0, total: 21 },
-      { month: "October", present: 21, absent: 0, late: 1, total: 22 },
-    ],
-  },
-  {
-    id: "child-2",
-    name: "Nimali Perera",
-    class: "Grade 7-B",
-    rollNo: "015",
-    admissionNo: "ADM-2022-045",
-    attendanceRate: 88,
-    totalDays: 180,
-    presentDays: 158,
-    absentDays: 15,
-    lateDays: 7,
-    trend: "down",
-    recentAttendance: [
-      { date: "2025-01-13", day: "Monday", status: "absent" },
-      { date: "2025-01-12", day: "Sunday", status: "holiday" },
-      { date: "2025-01-11", day: "Saturday", status: "holiday" },
-      { date: "2025-01-10", day: "Friday", status: "present" },
-      { date: "2025-01-09", day: "Thursday", status: "late" },
-      { date: "2025-01-08", day: "Wednesday", status: "present" },
-      { date: "2025-01-07", day: "Tuesday", status: "present" },
-      { date: "2025-01-06", day: "Monday", status: "absent" },
-      { date: "2025-01-03", day: "Friday", status: "present" },
-      { date: "2025-01-02", day: "Thursday", status: "present" },
-    ],
-    monthlyAttendance: [
-      { month: "January", present: 15, absent: 3, late: 2, total: 20 },
-      { month: "December", present: 17, absent: 4, late: 1, total: 22 },
-      { month: "November", present: 18, absent: 2, late: 1, total: 21 },
-      { month: "October", present: 19, absent: 2, late: 1, total: 22 },
-    ],
-  },
-]
+interface ParentChild {
+  id: string
+  name: string
+  className: string
+  rollNo?: string
+  admissionNo?: string
+  attendanceRate: number
+  totalDays: number
+  presentDays: number
+  absentDays: number
+  lateDays: number
+  trend: "up" | "down"
+  recentAttendance: Array<{ date: string; day: string; status: string }>
+  monthlyAttendance: Array<{ month: string; present: number; absent: number; late: number; total: number }>
+}
 
 type AttendanceStatus = "present" | "absent" | "late" | "holiday"
 
@@ -100,7 +51,8 @@ export default function AttendancePage() {
   const [classes, setClasses] = useState<Class[]>([])
   const [students, setStudents] = useState<Student[]>([])
   const [searchQuery, setSearchQuery] = useState("")
-  const [selectedChild, setSelectedChild] = useState(mockParentChildren[0]?.id || "")
+  const [parentChildren, setParentChildren] = useState<ParentChild[]>([])
+  const [selectedChild, setSelectedChild] = useState<string>("")
   const [attendance, setAttendance] = useState<Record<string, AttendanceStatus>>({})
   const [isLoading, setIsLoading] = useState(false)
   const [isLoadingStudents, setIsLoadingStudents] = useState(false)
@@ -116,11 +68,19 @@ export default function AttendancePage() {
   const [historyEndDate, setHistoryEndDate] = useState(new Date().toISOString().split("T")[0])
   const [attendanceHistory, setAttendanceHistory] = useState<any[]>([])
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [isLoadingParentData, setIsLoadingParentData] = useState(false)
   const skipFetchAttendanceRef = useRef(false)
 
   const isTeacherOrAdmin = user?.role === "teacher" || user?.role === "admin"
   const isParent = user?.role === "parent"
   const isTeacher = user?.role === "teacher"
+
+  // Fetch parent's children
+  useEffect(() => {
+    if (isParent) {
+      fetchParentChildren()
+    }
+  }, [isParent, user])
 
   // Initialize selected class for teachers
   useEffect(() => {
@@ -135,6 +95,13 @@ export default function AttendancePage() {
       fetchClasses()
     }
   }, [user?.role])
+
+  // Set first child as selected when children are loaded
+  useEffect(() => {
+    if (isParent && parentChildren.length > 0 && !selectedChild) {
+      setSelectedChild(parentChildren[0].id)
+    }
+  }, [isParent, parentChildren, selectedChild])
 
   // Fetch students when class or date changes
   useEffect(() => {
@@ -263,6 +230,173 @@ export default function AttendancePage() {
         attendanceMap[student.id] = "absent"
       })
       setAttendance(attendanceMap)
+    }
+  }
+
+  const fetchParentChildren = async () => {
+    try {
+      setIsLoadingParentData(true)
+      setError(null)
+
+      // Fetch parent's children
+      let childrenRes
+      let childrenData
+      
+      try {
+        childrenRes = await apiRequest('/users/parents/me/children')
+        childrenData = await childrenRes.json()
+      } catch (err: any) {
+        console.error('Error fetching children:', err)
+        setError(err.message || 'Failed to load children. Please ensure the backend server is running.')
+        setIsLoadingParentData(false)
+        return
+      }
+
+      if (!childrenRes.ok) {
+        const errorMsg = childrenData?.message || childrenData?.error?.message || 'Failed to load children'
+        setError(errorMsg)
+        setIsLoadingParentData(false)
+        return
+      }
+
+      if (!childrenData.data?.children) {
+        setError('No children found')
+        setIsLoadingParentData(false)
+        return
+      }
+
+      const children = childrenData.data.children
+
+      // Fetch attendance stats and history for each child
+      const childrenWithStats = await Promise.all(
+        children.map(async (child: any) => {
+          try {
+            // Get attendance stats
+            let stats = {
+              totalDays: 0,
+              presentDays: 0,
+              absentDays: 0,
+              lateDays: 0,
+              attendanceRate: 0,
+            }
+            
+            try {
+              const statsRes = await apiRequest(`/attendance/student/${child.id}/stats`)
+              if (statsRes.ok) {
+                const statsData = await statsRes.json()
+                stats = statsData.data?.stats || stats
+              }
+            } catch (err) {
+              console.warn(`Failed to fetch stats for child ${child.id}:`, err)
+              // Continue with default stats
+            }
+
+            // Get recent attendance (last 10 days)
+            const endDate = new Date().toISOString().split('T')[0]
+            const startDate = new Date()
+            startDate.setDate(startDate.getDate() - 10)
+            const startDateStr = startDate.toISOString().split('T')[0]
+
+            // Get attendance history for this specific child
+            let childHistory: any[] = []
+            try {
+              const historyRes = await apiRequest(
+                `/attendance/student/${child.id}/history?startDate=${startDateStr}&endDate=${endDate}`
+              )
+              if (historyRes.ok) {
+                const historyData = await historyRes.json()
+                childHistory = (historyData.data?.history || []).slice(0, 10)
+              } else {
+                console.warn(`Failed to fetch history for child ${child.id}:`, historyRes.status)
+              }
+            } catch (err) {
+              // If history endpoint is not accessible, we'll use empty array
+              console.warn(`Could not fetch attendance history for child ${child.id}:`, err)
+            }
+
+            // Format recent attendance
+            const recentAttendance = childHistory.map((record: any) => {
+              const date = new Date(record.date || record.markedAt)
+              return {
+                date: date.toISOString().split('T')[0],
+                day: date.toLocaleDateString('en-US', { weekday: 'long' }),
+                status: record.status || 'absent',
+              }
+            })
+
+            // Calculate monthly attendance (last 4 months)
+            const monthlyAttendance: Array<{ month: string; present: number; absent: number; late: number; total: number }> = []
+            const now = new Date()
+            
+            for (let i = 0; i < 4; i++) {
+              const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1)
+              const monthName = monthDate.toLocaleDateString('en-US', { month: 'long' })
+              const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
+              const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0)
+
+              const monthRecords = childHistory.filter((record: any) => {
+                const recordDate = new Date(record.date || record.markedAt)
+                return recordDate >= monthStart && recordDate <= monthEnd
+              })
+
+              const present = monthRecords.filter((r: any) => r.status === 'present').length
+              const absent = monthRecords.filter((r: any) => r.status === 'absent').length
+              const late = monthRecords.filter((r: any) => r.status === 'late').length
+              const total = monthRecords.length
+
+              monthlyAttendance.push({ month: monthName, present, absent, late, total })
+            }
+
+            // Determine trend (compare current month with previous month)
+            const trend = monthlyAttendance.length >= 2
+              ? monthlyAttendance[0].attendanceRate >= monthlyAttendance[1].attendanceRate
+                ? 'up'
+                : 'down'
+              : 'up'
+
+            return {
+              id: child.id,
+              name: child.name,
+              className: child.className,
+              rollNo: '', // Will be fetched from student details if needed
+              admissionNo: '', // Will be fetched from student details if needed
+              attendanceRate: stats.attendanceRate,
+              totalDays: stats.totalDays,
+              presentDays: stats.presentDays,
+              absentDays: stats.absentDays,
+              lateDays: stats.lateDays,
+              trend: trend as 'up' | 'down',
+              recentAttendance,
+              monthlyAttendance,
+            }
+          } catch (err: any) {
+            console.error(`Error fetching stats for child ${child.id}:`, err)
+            // Return child with default stats
+            return {
+              id: child.id,
+              name: child.name,
+              className: child.className,
+              rollNo: '',
+              admissionNo: '',
+              attendanceRate: 0,
+              totalDays: 0,
+              presentDays: 0,
+              absentDays: 0,
+              lateDays: 0,
+              trend: 'up' as const,
+              recentAttendance: [],
+              monthlyAttendance: [],
+            }
+          }
+        })
+      )
+
+      setParentChildren(childrenWithStats)
+    } catch (err: any) {
+      console.error('Fetch parent children error:', err)
+      setError('Failed to load children data')
+    } finally {
+      setIsLoadingParentData(false)
     }
   }
 
@@ -420,7 +554,33 @@ export default function AttendancePage() {
   }
 
   if (isParent) {
-    const currentChild = mockParentChildren.find((c) => c.id === selectedChild) || mockParentChildren[0]
+    if (isLoadingParentData) {
+      return (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      )
+    }
+
+    if (parentChildren.length === 0) {
+      return (
+        <div className="space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">{t("attendance")}</h1>
+            <p className="text-muted-foreground">{t("attendanceHistory")}</p>
+          </div>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-center py-8">
+                <p className="text-muted-foreground">No children found. Please contact the administrator.</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )
+    }
+
+    const currentChild = parentChildren.find((c) => c.id === selectedChild) || parentChildren[0]
 
     return (
       <div className="space-y-6">
@@ -430,11 +590,19 @@ export default function AttendancePage() {
           <p className="text-muted-foreground">{t("attendanceHistory")}</p>
         </div>
 
+        {/* Error Message */}
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
         {/* Child Selector */}
-        {mockParentChildren.length > 1 && (
+        {parentChildren.length > 1 && (
           <Tabs value={selectedChild} onValueChange={setSelectedChild}>
             <TabsList>
-              {mockParentChildren.map((child) => (
+              {parentChildren.map((child) => (
                 <TabsTrigger key={child.id} value={child.id}>
                   {child.name}
                 </TabsTrigger>
@@ -453,7 +621,8 @@ export default function AttendancePage() {
               <div className="flex-1">
                 <h2 className="text-xl font-semibold text-foreground">{currentChild.name}</h2>
                 <p className="text-muted-foreground">
-                  {currentChild.class} • Roll No: {currentChild.rollNo}
+                  {currentChild.className}
+                  {currentChild.rollNo && ` • Roll No: ${currentChild.rollNo}`}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -525,21 +694,25 @@ export default function AttendancePage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {currentChild.recentAttendance.map((record, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between py-2 border-b border-border last:border-0"
-                  >
-                    <div className="flex items-center gap-3">
-                      {getStatusIcon(record.status as AttendanceStatus)}
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{record.day}</p>
-                        <p className="text-xs text-muted-foreground">{record.date}</p>
+                {currentChild.recentAttendance.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">No recent attendance records</p>
+                ) : (
+                  currentChild.recentAttendance.map((record, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between py-2 border-b border-border last:border-0"
+                    >
+                      <div className="flex items-center gap-3">
+                        {getStatusIcon(record.status as AttendanceStatus)}
+                        <div>
+                          <p className="text-sm font-medium text-foreground">{record.day}</p>
+                          <p className="text-xs text-muted-foreground">{record.date}</p>
+                        </div>
                       </div>
+                      {getStatusBadge(record.status as AttendanceStatus)}
                     </div>
-                    {getStatusBadge(record.status as AttendanceStatus)}
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>
@@ -552,38 +725,45 @@ export default function AttendancePage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {currentChild.monthlyAttendance.map((month, index) => (
-                  <div key={index} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-foreground">{month.month}</span>
-                      <span className="text-sm text-muted-foreground">
-                        {Math.round((month.present / month.total) * 100)}%
-                      </span>
-                    </div>
-                    <div className="flex gap-1 h-2">
-                      <div
-                        className="bg-success rounded-l"
-                        style={{ width: `${(month.present / month.total) * 100}%` }}
-                      />
-                      <div className="bg-destructive" style={{ width: `${(month.absent / month.total) * 100}%` }} />
-                      <div className="bg-warning rounded-r" style={{ width: `${(month.late / month.total) * 100}%` }} />
-                    </div>
-                    <div className="flex gap-4 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-full bg-success" />
-                        {month.present} {t("present")}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-full bg-destructive" />
-                        {month.absent} {t("absent")}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-full bg-warning" />
-                        {month.late} {t("late")}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                {currentChild.monthlyAttendance.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">No monthly attendance data available</p>
+                ) : (
+                  currentChild.monthlyAttendance.map((month, index) => {
+                    const total = month.total || 1 // Avoid division by zero
+                    return (
+                      <div key={index} className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-foreground">{month.month}</span>
+                          <span className="text-sm text-muted-foreground">
+                            {Math.round((month.present / total) * 100)}%
+                          </span>
+                        </div>
+                        <div className="flex gap-1 h-2">
+                          <div
+                            className="bg-success rounded-l"
+                            style={{ width: `${(month.present / total) * 100}%` }}
+                          />
+                          <div className="bg-destructive" style={{ width: `${(month.absent / total) * 100}%` }} />
+                          <div className="bg-warning rounded-r" style={{ width: `${(month.late / total) * 100}%` }} />
+                        </div>
+                        <div className="flex gap-4 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <span className="h-2 w-2 rounded-full bg-success" />
+                            {month.present} {t("present")}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <span className="h-2 w-2 rounded-full bg-destructive" />
+                            {month.absent} {t("absent")}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <span className="h-2 w-2 rounded-full bg-warning" />
+                            {month.late} {t("late")}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
               </div>
             </CardContent>
           </Card>

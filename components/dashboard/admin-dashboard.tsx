@@ -1,64 +1,198 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { StatsCard } from "@/components/dashboard/stats-card"
 import { useLanguage } from "@/lib/i18n/context"
-import { Users, GraduationCap, School, ClipboardCheck, Calendar, Bell, Plus, ArrowRight } from "lucide-react"
+import { apiRequest } from "@/lib/api/client"
+import { Users, GraduationCap, School, ClipboardCheck, Calendar, Bell, Plus, ArrowRight, Loader2 } from "lucide-react"
 import Link from "next/link"
 
-// Mock data
-const recentNotices = [
-  { id: 1, title: "School Sports Day Announcement", date: "2024-12-10", target: "All" },
-  { id: 2, title: "Parent-Teacher Meeting Schedule", date: "2024-12-08", target: "Parents" },
-  { id: 3, title: "Holiday Calendar Update", date: "2024-12-05", target: "All" },
-]
+interface Notice {
+  id: string
+  title: string
+  publishedAt: string
+  targetAudience: string[]
+}
 
-const upcomingExams = [
-  { id: 1, name: "Mid-Term Examination", date: "2024-12-20", grade: "Grade 10" },
-  { id: 2, name: "Science Quiz", date: "2024-12-15", grade: "Grade 8" },
-  { id: 3, name: "Mathematics Test", date: "2024-12-18", grade: "Grade 9" },
-]
+interface Exam {
+  id: string
+  name: string
+  date: string
+  className: string
+  status: string
+}
 
-const pendingAppointments = [
-  {
-    id: 1,
-    parent: "Mr. Silva",
-    teacher: "Mrs. Perera",
-    child: "Kasun Silva",
-    class: "Grade 10-A",
-    date: "2024-12-12",
-    time: "10:00 AM",
-    reason: "Academic Progress Discussion",
-    status: "pending",
-  },
-  {
-    id: 2,
-    parent: "Mrs. Fernando",
-    teacher: "Mr. Kumar",
-    child: "Nethmi Fernando",
-    class: "Grade 8-B",
-    date: "2024-12-13",
-    time: "2:00 PM",
-    reason: "Behavior Concern",
-    status: "pending",
-  },
-  {
-    id: 3,
-    parent: "Mr. Jayawardena",
-    teacher: "Mrs. Perera",
-    child: "Amal Jayawardena",
-    class: "Grade 10-A",
-    date: "2024-12-14",
-    time: "11:00 AM",
-    reason: "Career Guidance",
-    status: "pending",
-  },
-]
+interface Appointment {
+  id: string
+  parentName: string
+  teacherName: string
+  studentName: string
+  className: string
+  date: string
+  time: string
+  reason: string
+  status: string
+}
 
 export function AdminDashboard() {
   const { t } = useLanguage()
+  const [stats, setStats] = useState({
+    totalStudents: 0,
+    totalTeachers: 0,
+    totalClasses: 0,
+    todayAttendance: 0,
+  })
+  const [recentNotices, setRecentNotices] = useState<Notice[]>([])
+  const [upcomingExams, setUpcomingExams] = useState<Exam[]>([])
+  const [pendingAppointments, setPendingAppointments] = useState<Appointment[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    fetchDashboardData()
+  }, [])
+
+  const fetchDashboardData = async () => {
+    try {
+      setIsLoading(true)
+
+      // Fetch all data in parallel
+      const [studentsRes, teachersRes, classesRes, noticesRes, examsRes, appointmentsRes] = await Promise.all([
+        apiRequest('/users/students'),
+        apiRequest('/users/teachers'),
+        apiRequest('/academic/classes'),
+        apiRequest('/notices'),
+        apiRequest('/exams'),
+        apiRequest('/appointments'),
+      ])
+
+      const studentsData = await studentsRes.json()
+      const teachersData = await teachersRes.json()
+      const classesData = await classesRes.json()
+      const noticesData = await noticesRes.json()
+      const examsData = await examsRes.json()
+      const appointmentsData = await appointmentsRes.json()
+
+      // Calculate stats
+      const students = studentsData.data?.students || []
+      const teachers = teachersData.data?.teachers || []
+      const classes = classesData.data?.classes || []
+      const notices = noticesData.data?.notices || []
+      const exams = examsData.data?.exams || []
+      const appointments = appointmentsData.data?.appointments || []
+
+      // Calculate today's attendance percentage
+      // For performance, we'll use a simplified calculation
+      // In a production app, you might want a dedicated stats endpoint
+      const today = new Date().toISOString().split('T')[0]
+      let todayAttendanceCount = 0
+      let todayTotalStudents = 0
+
+      // Get attendance for first few classes only (for performance)
+      // In production, consider a dedicated stats endpoint
+      const classesToCheck = classes.slice(0, 5)
+      const attendancePromises = classesToCheck.map(async (cls: any) => {
+        try {
+          const attendanceRes = await apiRequest(`/attendance?className=${encodeURIComponent(cls.name)}&date=${today}`)
+          const attendanceData = await attendanceRes.json()
+          const attendanceRecords = attendanceData.data?.attendance || []
+          
+          todayTotalStudents += attendanceRecords.length
+          todayAttendanceCount += attendanceRecords.filter((r: any) => r.status === 'present').length
+        } catch (err) {
+          // Ignore errors for individual classes
+        }
+      })
+
+      await Promise.all(attendancePromises)
+
+      // If we checked some classes, extrapolate for all classes
+      let attendancePercentage = 0
+      if (classesToCheck.length > 0 && todayTotalStudents > 0) {
+        const samplePercentage = (todayAttendanceCount / todayTotalStudents) * 100
+        // Use sample percentage as estimate for all classes
+        attendancePercentage = parseFloat(samplePercentage.toFixed(1))
+      }
+
+      setStats({
+        totalStudents: students.length,
+        totalTeachers: teachers.length,
+        totalClasses: classes.length,
+        todayAttendance: parseFloat(attendancePercentage),
+      })
+
+      // Get recent notices (last 3, sorted by publishedAt)
+      const sortedNotices = notices
+        .filter((n: any) => n.status === 'published')
+        .sort((a: any, b: any) => {
+          const dateA = new Date(a.publishedAt || a.createdAt).getTime()
+          const dateB = new Date(b.publishedAt || b.createdAt).getTime()
+          return dateB - dateA
+        })
+        .slice(0, 3)
+        .map((n: any) => ({
+          id: n.id,
+          title: n.title,
+          date: new Date(n.publishedAt || n.createdAt).toISOString().split('T')[0],
+          target: n.targetAudience?.includes('all') ? 'All' : n.targetAudience?.join(', ') || 'All',
+        }))
+
+      setRecentNotices(sortedNotices)
+
+      // Get upcoming exams (next 3, sorted by date)
+      const todayDate = new Date()
+      todayDate.setHours(0, 0, 0, 0)
+
+      const sortedExams = exams
+        .filter((e: any) => {
+          const examDate = new Date(e.date)
+          return examDate >= todayDate && (e.status === 'scheduled' || e.status === 'ongoing')
+        })
+        .sort((a: any, b: any) => {
+          const dateA = new Date(a.date).getTime()
+          const dateB = new Date(b.date).getTime()
+          return dateA - dateB
+        })
+        .slice(0, 3)
+        .map((e: any) => ({
+          id: e.id,
+          name: e.name,
+          date: new Date(e.date).toISOString().split('T')[0],
+          grade: e.className || 'N/A',
+        }))
+
+      setUpcomingExams(sortedExams)
+
+      // Get pending appointments (last 3)
+      const pending = appointments
+        .filter((a: any) => a.status === 'pending')
+        .sort((a: any, b: any) => {
+          const dateA = new Date(a.date).getTime()
+          const dateB = new Date(b.date).getTime()
+          return dateA - dateB
+        })
+        .slice(0, 3)
+        .map((a: any) => ({
+          id: a.id,
+          parent: a.parentName,
+          teacher: a.teacherName,
+          child: a.studentName,
+          class: a.className,
+          date: a.date,
+          time: a.time,
+          reason: a.reason,
+          status: a.status,
+        }))
+
+      setPendingAppointments(pending)
+    } catch (err: any) {
+      console.error('Fetch dashboard data error:', err)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -78,23 +212,36 @@ export function AdminDashboard() {
         </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
-        <StatsCard
-          title={t("totalStudents")}
-          value="1,234"
-          icon={GraduationCap}
-          trend={{ value: 12, isPositive: true }}
-        />
-        <StatsCard title={t("totalTeachers")} value="86" icon={Users} trend={{ value: 5, isPositive: true }} />
-        <StatsCard title={t("totalClasses")} value="42" icon={School} description="Across all grades" />
-        <StatsCard
-          title={t("todayAttendance")}
-          value="94.5%"
-          icon={ClipboardCheck}
-          trend={{ value: 2.3, isPositive: true }}
-        />
-      </div>
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <>
+          {/* Stats Grid */}
+          <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
+            <StatsCard
+              title={t("totalStudents")}
+              value={stats.totalStudents.toLocaleString()}
+              icon={GraduationCap}
+            />
+            <StatsCard 
+              title={t("totalTeachers")} 
+              value={stats.totalTeachers.toLocaleString()} 
+              icon={Users} 
+            />
+            <StatsCard 
+              title={t("totalClasses")} 
+              value={stats.totalClasses.toLocaleString()} 
+              icon={School} 
+              description="Across all grades" 
+            />
+            <StatsCard
+              title={t("todayAttendance")}
+              value={`${stats.todayAttendance}%`}
+              icon={ClipboardCheck}
+            />
+          </div>
 
       {/* Main Content Grid */}
       <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
@@ -113,7 +260,10 @@ export function AdminDashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3 sm:space-y-4">
-              {recentNotices.map((notice) => (
+              {recentNotices.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No recent notices</p>
+              ) : (
+                recentNotices.map((notice) => (
                 <div
                   key={notice.id}
                   className="flex items-start justify-between gap-3 sm:gap-4 pb-3 sm:pb-4 border-b border-border last:border-0 last:pb-0"
@@ -131,7 +281,8 @@ export function AdminDashboard() {
                     {notice.target}
                   </Badge>
                 </div>
-              ))}
+              ))
+              )}
             </div>
           </CardContent>
         </Card>
@@ -151,7 +302,10 @@ export function AdminDashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3 sm:space-y-4">
-              {upcomingExams.map((exam) => (
+              {upcomingExams.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No upcoming exams</p>
+              ) : (
+                upcomingExams.map((exam) => (
                 <div
                   key={exam.id}
                   className="flex items-center justify-between gap-3 sm:gap-4 pb-3 sm:pb-4 border-b border-border last:border-0 last:pb-0"
@@ -167,7 +321,8 @@ export function AdminDashboard() {
                   </div>
                   <p className="text-xs sm:text-sm text-muted-foreground flex-shrink-0">{exam.date}</p>
                 </div>
-              ))}
+              ))
+              )}
             </div>
           </CardContent>
         </Card>
@@ -189,7 +344,12 @@ export function AdminDashboard() {
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-              {pendingAppointments.map((appointment) => (
+              {pendingAppointments.length === 0 ? (
+                <div className="col-span-full">
+                  <p className="text-sm text-muted-foreground text-center py-4">No pending appointments</p>
+                </div>
+              ) : (
+                pendingAppointments.map((appointment) => (
                 <div
                   key={appointment.id}
                   className="p-3 sm:p-4 rounded-lg border border-border bg-card hover:bg-accent/5 transition-colors"
@@ -226,11 +386,14 @@ export function AdminDashboard() {
                     </p>
                   </div>
                 </div>
-              ))}
+              ))
+              )}
             </div>
           </CardContent>
         </Card>
       </div>
+        </>
+      )}
     </div>
   )
 }
