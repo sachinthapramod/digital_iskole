@@ -14,6 +14,17 @@ if (process.env.VERCEL !== '1') {
   const server = app.listen(PORT, () => {
     logger.info(`Server running on port ${PORT} in ${NODE_ENV} mode`);
     logger.info(`API base URL: ${process.env.API_BASE_URL || 'http://localhost:3001/api'}`);
+  }).on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code === 'EADDRINUSE') {
+      logger.error(`Port ${PORT} is already in use. Please:`);
+      logger.error(`1. Stop the existing server (Ctrl+C)`);
+      logger.error(`2. Or kill the process: Get-NetTCPConnection -LocalPort ${PORT} | Select-Object -ExpandProperty OwningProcess | Stop-Process -Force`);
+      logger.error(`3. Or change the PORT in .env file`);
+      process.exit(1);
+    } else {
+      logger.error('Server error:', error);
+      process.exit(1);
+    }
   });
 
   // Graceful shutdown

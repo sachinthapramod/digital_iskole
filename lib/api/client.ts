@@ -89,6 +89,8 @@ export async function apiRequest(
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
+  } else {
+    console.warn('No token found in localStorage for request to:', endpoint);
   }
 
   let response: Response;

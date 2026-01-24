@@ -139,26 +139,42 @@ export class AttendanceController {
       if (req.user.role === 'parent') {
         const studentDoc = await db.collection('students').doc(studentId).get();
         if (!studentDoc.exists) {
+          logger.warn(`Student not found: ${studentId}`);
           sendError(res, 'NOT_FOUND', 'Student not found', 404);
           return;
         }
 
         // Check if this student belongs to the parent
+        // First try to find parent by userId
         const parentDoc = await db.collection('parents')
           .where('userId', '==', req.user.uid)
           .limit(1)
           .get();
 
         if (parentDoc.empty) {
+          logger.warn(`Parent profile not found for userId: ${req.user.uid}`);
           sendError(res, 'AUTH_UNAUTHORIZED', 'Parent profile not found', 403);
           return;
         }
 
         const parentData = parentDoc.docs[0].data();
-        if (!parentData.childrenIds || !parentData.childrenIds.includes(studentId)) {
+        const parentId = parentDoc.docs[0].id;
+        
+        // Check if student is linked to this parent
+        // Students are linked via parentId field on student document
+        // OR via children array on parent document
+        const studentData = studentDoc.data();
+        const isLinkedViaParentId = studentData?.parentId === parentId;
+        const childrenArray = parentData.children || parentData.childrenIds || [];
+        const isLinkedViaChildrenArray = Array.isArray(childrenArray) && childrenArray.includes(studentId);
+        
+        if (!isLinkedViaParentId && !isLinkedViaChildrenArray) {
+          logger.warn(`Parent ${parentId} (userId: ${req.user.uid}) does not have access to student ${studentId}. ParentId match: ${isLinkedViaParentId}, ChildrenArray match: ${isLinkedViaChildrenArray}. Student parentId: ${studentData?.parentId}, Parent children: ${JSON.stringify(childrenArray)}`);
           sendError(res, 'AUTH_UNAUTHORIZED', 'You do not have access to this student', 403);
           return;
         }
+        
+        logger.info(`Parent ${parentId} authorized to view student ${studentId} attendance`);
       }
 
       const history = await attendanceService.getStudentAttendanceHistory(

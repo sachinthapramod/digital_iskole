@@ -291,21 +291,26 @@ export default function AttendancePage() {
               // Continue with default stats
             }
 
-            // Get recent attendance (last 10 days)
-            const endDate = new Date().toISOString().split('T')[0]
+            // Get attendance history for last 4 months (to calculate monthly summaries)
+            const endDate = new Date()
+            endDate.setHours(23, 59, 59, 999)
+            const endDateStr = endDate.toISOString().split('T')[0]
+            
             const startDate = new Date()
-            startDate.setDate(startDate.getDate() - 10)
+            startDate.setMonth(startDate.getMonth() - 4)
+            startDate.setHours(0, 0, 0, 0)
             const startDateStr = startDate.toISOString().split('T')[0]
 
             // Get attendance history for this specific child
             let childHistory: any[] = []
             try {
               const historyRes = await apiRequest(
-                `/attendance/student/${child.id}/history?startDate=${startDateStr}&endDate=${endDate}`
+                `/attendance/student/${child.id}/history?startDate=${startDateStr}&endDate=${endDateStr}`
               )
               if (historyRes.ok) {
                 const historyData = await historyRes.json()
-                childHistory = (historyData.data?.history || []).slice(0, 10)
+                childHistory = historyData.data?.history || []
+                console.log(`Fetched ${childHistory.length} attendance records for child ${child.id}`)
               } else {
                 console.warn(`Failed to fetch history for child ${child.id}:`, historyRes.status)
               }
@@ -314,15 +319,35 @@ export default function AttendancePage() {
               console.warn(`Could not fetch attendance history for child ${child.id}:`, err)
             }
 
-            // Format recent attendance
-            const recentAttendance = childHistory.map((record: any) => {
-              const date = new Date(record.date || record.markedAt)
-              return {
-                date: date.toISOString().split('T')[0],
-                day: date.toLocaleDateString('en-US', { weekday: 'long' }),
-                status: record.status || 'absent',
-              }
+            // Format recent attendance (last 10 records, sorted by date descending)
+            const sortedHistory = [...childHistory].sort((a: any, b: any) => {
+              const dateA = new Date(a.date || a.markedAt || 0).getTime()
+              const dateB = new Date(b.date || b.markedAt || 0).getTime()
+              return dateB - dateA
             })
+
+            const recentAttendance = sortedHistory.slice(0, 10).map((record: any) => {
+              try {
+                const dateStr = record.date || record.markedAt
+                if (!dateStr) {
+                  console.warn('Record missing date:', record)
+                  return null
+                }
+                const date = new Date(dateStr)
+                if (isNaN(date.getTime())) {
+                  console.warn('Invalid date:', dateStr)
+                  return null
+                }
+                return {
+                  date: date.toISOString().split('T')[0],
+                  day: date.toLocaleDateString('en-US', { weekday: 'long' }),
+                  status: record.status || 'absent',
+                }
+              } catch (err) {
+                console.warn('Error formatting attendance record:', err, record)
+                return null
+              }
+            }).filter((item: any) => item !== null)
 
             // Calculate monthly attendance (last 4 months)
             const monthlyAttendance: Array<{ month: string; present: number; absent: number; late: number; total: number }> = []
@@ -330,13 +355,23 @@ export default function AttendancePage() {
             
             for (let i = 0; i < 4; i++) {
               const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1)
-              const monthName = monthDate.toLocaleDateString('en-US', { month: 'long' })
+              const monthName = monthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
               const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
+              monthStart.setHours(0, 0, 0, 0)
               const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0)
+              monthEnd.setHours(23, 59, 59, 999)
 
               const monthRecords = childHistory.filter((record: any) => {
-                const recordDate = new Date(record.date || record.markedAt)
-                return recordDate >= monthStart && recordDate <= monthEnd
+                try {
+                  const dateStr = record.date || record.markedAt
+                  if (!dateStr) return false
+                  const recordDate = new Date(dateStr)
+                  if (isNaN(recordDate.getTime())) return false
+                  recordDate.setHours(0, 0, 0, 0)
+                  return recordDate >= monthStart && recordDate <= monthEnd
+                } catch (err) {
+                  return false
+                }
               })
 
               const present = monthRecords.filter((r: any) => r.status === 'present').length
@@ -347,12 +382,18 @@ export default function AttendancePage() {
               monthlyAttendance.push({ month: monthName, present, absent, late, total })
             }
 
-            // Determine trend (compare current month with previous month)
-            const trend = monthlyAttendance.length >= 2
-              ? monthlyAttendance[0].attendanceRate >= monthlyAttendance[1].attendanceRate
-                ? 'up'
-                : 'down'
-              : 'up'
+            // Reverse to show newest month first (current month at the top)
+            monthlyAttendance.reverse()
+
+            // Determine trend (compare current month with previous month attendance rate)
+            let trend: 'up' | 'down' = 'up'
+            if (monthlyAttendance.length >= 2) {
+              const currentMonth = monthlyAttendance[monthlyAttendance.length - 1]
+              const previousMonth = monthlyAttendance[monthlyAttendance.length - 2]
+              const currentRate = currentMonth.total > 0 ? (currentMonth.present / currentMonth.total) * 100 : 0
+              const previousRate = previousMonth.total > 0 ? (previousMonth.present / previousMonth.total) * 100 : 0
+              trend = currentRate >= previousRate ? 'up' : 'down'
+            }
 
             return {
               id: child.id,
