@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useRef, useEffect } from "react"
+import { useMemo, useState, useRef, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -63,64 +63,6 @@ const mockStudentsMarks = [
   },
   { id: "7", name: "Ruwan Bandara", rollNo: "007", marks: 72, total: 100, examPaper: null },
   { id: "8", name: "Malini Rathnayake", rollNo: "008", marks: 81, total: 100, examPaper: null },
-]
-
-// For parent view - mock children's marks with exam papers
-const mockChildMarks = [
-  {
-    subject: "Mathematics",
-    exam: "First Term",
-    marks: 85,
-    total: 100,
-    grade: "A",
-    teacher: "Mrs. Perera",
-    examPaper: "/placeholder.svg?height=800&width=600",
-  },
-  {
-    subject: "Science",
-    exam: "First Term",
-    marks: 78,
-    total: 100,
-    grade: "B+",
-    teacher: "Mr. Kumar",
-    examPaper: "/placeholder.svg?height=800&width=600",
-  },
-  {
-    subject: "English",
-    exam: "First Term",
-    marks: 92,
-    total: 100,
-    grade: "A+",
-    teacher: "Mrs. Fernando",
-    examPaper: null,
-  },
-  {
-    subject: "Sinhala",
-    exam: "First Term",
-    marks: 88,
-    total: 100,
-    grade: "A",
-    teacher: "Mr. Silva",
-    examPaper: "/placeholder.svg?height=800&width=600",
-  },
-  {
-    subject: "History",
-    exam: "First Term",
-    marks: 75,
-    total: 100,
-    grade: "B",
-    teacher: "Mrs. Mendis",
-    examPaper: null,
-  },
-  {
-    subject: "Geography",
-    exam: "First Term",
-    marks: 82,
-    total: 100,
-    grade: "A-",
-    teacher: "Mr. Bandara",
-    examPaper: "/placeholder.svg?height=800&width=600",
-  },
 ]
 
 function getGrade(marks: number, total: number): string {
@@ -325,6 +267,29 @@ interface Student {
   admissionNumber: string
 }
 
+interface ParentChild {
+  id: string
+  name: string
+  className: string
+}
+
+interface ParentMark {
+  id: string
+  studentId: string
+  studentName: string
+  examId: string
+  examName: string
+  subjectId: string
+  subjectName: string
+  marks: number
+  totalMarks: number
+  grade: string
+  percentage: number
+  examPaperUrl?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
 export default function MarksPage() {
   const { t } = useLanguage()
   const { user } = useAuth()
@@ -358,6 +323,15 @@ export default function MarksPage() {
 
   const isTeacherOrAdmin = user?.role === "teacher" || user?.role === "admin"
 
+  // Parent view state
+  const [parentChildren, setParentChildren] = useState<ParentChild[]>([])
+  const [selectedParentChildId, setSelectedParentChildId] = useState<string>("")
+  const [parentMarks, setParentMarks] = useState<ParentMark[]>([])
+  const [selectedParentExamId, setSelectedParentExamId] = useState<string>("all")
+  const [isLoadingParent, setIsLoadingParent] = useState(false)
+  const [isLoadingParentMarks, setIsLoadingParentMarks] = useState(false)
+  const [parentError, setParentError] = useState<string | null>(null)
+
   useEffect(() => {
     if (isTeacherOrAdmin) {
       fetchExams()
@@ -372,6 +346,126 @@ export default function MarksPage() {
       fetchExistingMarks()
     }
   }, [selectedClass, selectedExam, selectedSubject])
+
+  useEffect(() => {
+    if (user?.role !== "parent") return
+
+    let cancelled = false
+
+    async function fetchParentChildren() {
+      try {
+        setIsLoadingParent(true)
+        setParentError(null)
+
+        const response = await apiRequest("/users/parents/me/children")
+        const data = await response.json().catch(() => ({}))
+
+        if (!response.ok || data?.success === false) {
+          throw new Error(data?.error?.message || data?.message || "Failed to load children")
+        }
+
+        const children = (data.data?.children || []) as ParentChild[]
+
+        if (!cancelled) {
+          setParentChildren(children)
+          setSelectedParentChildId((prev) => prev || children[0]?.id || "")
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setParentError(e?.message || "Failed to load children")
+          setParentChildren([])
+          setSelectedParentChildId("")
+        }
+      } finally {
+        if (!cancelled) setIsLoadingParent(false)
+      }
+    }
+
+    fetchParentChildren()
+    return () => {
+      cancelled = true
+    }
+  }, [user?.role])
+
+  useEffect(() => {
+    if (user?.role !== "parent") return
+
+    if (!selectedParentChildId) {
+      setParentMarks([])
+      return
+    }
+
+    let cancelled = false
+
+    async function fetchParentMarks() {
+      try {
+        setIsLoadingParentMarks(true)
+        setParentError(null)
+
+        const response = await apiRequest(`/marks/student/${selectedParentChildId}`)
+        const data = await response.json().catch(() => ({}))
+
+        if (!response.ok || data?.success === false) {
+          throw new Error(data?.error?.message || data?.message || "Failed to load marks")
+        }
+
+        const marks = (data.data?.marks || []) as ParentMark[]
+        marks.sort(
+          (a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime()
+        )
+
+        if (!cancelled) {
+          setParentMarks(marks)
+          setSelectedParentExamId("all")
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setParentError(e?.message || "Failed to load marks")
+          setParentMarks([])
+        }
+      } finally {
+        if (!cancelled) setIsLoadingParentMarks(false)
+      }
+    }
+
+    fetchParentMarks()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedParentChildId, user?.role])
+
+  const parentExamOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const m of parentMarks) {
+      if (m.examId) map.set(m.examId, m.examName || "Exam")
+    }
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }))
+  }, [parentMarks])
+
+  const filteredParentMarks = useMemo(() => {
+    const filtered =
+      selectedParentExamId === "all" ? parentMarks : parentMarks.filter((m) => m.examId === selectedParentExamId)
+    return filtered.slice().sort((a, b) => {
+      const aT = new Date(a.updatedAt || a.createdAt || 0).getTime()
+      const bT = new Date(b.updatedAt || b.createdAt || 0).getTime()
+      return bT - aT
+    })
+  }, [parentMarks, selectedParentExamId])
+
+  const parentSummary = useMemo(() => {
+    const totalObtained = filteredParentMarks.reduce((sum, m) => sum + (m.marks || 0), 0)
+    const totalPossible = filteredParentMarks.reduce((sum, m) => sum + (m.totalMarks || 0), 0)
+    const percent = totalPossible > 0 ? Math.round((totalObtained / totalPossible) * 1000) / 10 : 0
+    const avgPercent =
+      filteredParentMarks.length > 0
+        ? Math.round(
+            filteredParentMarks.reduce((sum, m) => sum + (typeof m.percentage === "number" ? m.percentage : 0), 0) /
+              filteredParentMarks.length
+          )
+        : 0
+    const avgGrade = filteredParentMarks.length > 0 ? getGrade(avgPercent, 100) : "-"
+    return { totalObtained, totalPossible, percent, avgPercent, avgGrade }
+  }, [filteredParentMarks])
 
   const fetchExams = async () => {
     try {
@@ -591,6 +685,12 @@ export default function MarksPage() {
 
   // Parent view
   if (user?.role === "parent") {
+    const selectedChild = parentChildren.find((c) => c.id === selectedParentChildId) || null
+    const selectedExamName =
+      selectedParentExamId === "all"
+        ? "All Exams"
+        : parentExamOptions.find((e) => e.id === selectedParentExamId)?.name || "Exam"
+
     return (
       <div className="space-y-6">
         <div>
@@ -604,29 +704,32 @@ export default function MarksPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Select Child</Label>
-                <Select defaultValue="kasun">
+                <Select value={selectedParentChildId} onValueChange={(v) => setSelectedParentChildId(v)}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder={isLoadingParent ? "Loading..." : "Select child"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="kasun">Kasun Silva - Grade 10-A</SelectItem>
-                    <SelectItem value="nimali">Nimali Silva - Grade 8-B</SelectItem>
+                    {parentChildren.map((child) => (
+                      <SelectItem key={child.id} value={child.id}>
+                        {child.name} - {child.className}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>{t("examType")}</Label>
-                <Select defaultValue="firstTerm">
+                <Label>{t("examName")}</Label>
+                <Select value={selectedParentExamId} onValueChange={setSelectedParentExamId}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder={isLoadingParentMarks ? "Loading..." : "All exams"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="firstTerm">{t("firstTerm")} 2024</SelectItem>
-                    <SelectItem value="secondTerm">{t("secondTerm")} 2024</SelectItem>
-                    <SelectItem value="thirdTerm">{t("thirdTerm")} 2024</SelectItem>
-                    <SelectItem value="monthlyTest">{t("monthlyTest")}</SelectItem>
-                    <SelectItem value="quiz">{t("quiz")}</SelectItem>
-                    <SelectItem value="assignment">{t("assignment")}</SelectItem>
+                    <SelectItem value="all">All exams</SelectItem>
+                    {parentExamOptions.map((exam) => (
+                      <SelectItem key={exam.id} value={exam.id}>
+                        {exam.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -634,83 +737,131 @@ export default function MarksPage() {
           </CardContent>
         </Card>
 
+        {parentError && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{parentError}</AlertDescription>
+          </Alert>
+        )}
+
+        {isLoadingParent && (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        )}
+
+        {!isLoadingParent && parentChildren.length === 0 && !parentError && (
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-center py-8 text-muted-foreground">No children linked to this parent account.</div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Marks Summary */}
         <div className="grid gap-4 sm:grid-cols-3">
           <Card>
             <CardContent className="pt-6 text-center">
               <p className="text-sm text-muted-foreground">{t("totalMarks")}</p>
-              <p className="text-3xl font-bold text-foreground">500/600</p>
-              <p className="text-sm text-muted-foreground">83.3%</p>
+              <p className="text-3xl font-bold text-foreground">
+                {parentSummary.totalObtained}/{parentSummary.totalPossible}
+              </p>
+              <p className="text-sm text-muted-foreground">{parentSummary.percent}%</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6 text-center">
               <p className="text-sm text-muted-foreground">Average Grade</p>
-              <p className="text-3xl font-bold text-primary">A-</p>
-              <p className="text-sm text-muted-foreground">Excellent</p>
+              <p className="text-3xl font-bold text-primary">{parentSummary.avgGrade}</p>
+              <p className="text-sm text-muted-foreground">{parentSummary.avgPercent}%</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6 text-center">
               <p className="text-sm text-muted-foreground">Class Rank</p>
-              <p className="text-3xl font-bold text-foreground">5/32</p>
-              <p className="text-sm text-success">Top 20%</p>
+              <p className="text-3xl font-bold text-foreground">-</p>
+              <p className="text-sm text-muted-foreground">Not available</p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Subject-wise Marks with Exam Paper View */}
+        {/* Marks table */}
         <Card>
           <CardHeader>
-            <CardTitle>{t("marks")} - First Term 2024</CardTitle>
-            <CardDescription>Subject-wise performance for Kasun Silva</CardDescription>
+            <CardTitle>
+              {t("marks")} - {selectedExamName}
+            </CardTitle>
+            <CardDescription>
+              {selectedChild ? `Subject-wise performance for ${selectedChild.name}` : "Subject-wise performance"}
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Subject</th>
-                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Teacher</th>
-                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">
-                      {t("obtainedMarks")}
-                    </th>
-                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("percentage")}</th>
-                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("gradeLabel")}</th>
-                    <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Exam Paper</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {mockChildMarks.map((mark, index) => (
-                    <tr key={index} className="border-b border-border last:border-0">
-                      <td className="py-3 px-2">
-                        <div className="flex items-center gap-3">
-                          <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                            <FileText className="h-4 w-4 text-primary" />
-                          </div>
-                          <span className="text-sm font-medium text-foreground">{mark.subject}</span>
-                        </div>
-                      </td>
-                      <td className="py-3 px-2 text-sm text-muted-foreground">{mark.teacher}</td>
-                      <td className="py-3 px-2 text-sm text-foreground">
-                        {mark.marks}/{mark.total}
-                      </td>
-                      <td className="py-3 px-2 text-sm text-foreground">{mark.marks}%</td>
-                      <td className="py-3 px-2">
-                        <Badge className={getGradeColor(mark.grade)}>{mark.grade}</Badge>
-                      </td>
-                      <td className="py-3 px-2">
-                        {mark.examPaper ? (
-                          <ExamPaperViewer paperUrl={mark.examPaper} studentName="Kasun Silva" subject={mark.subject} />
-                        ) : (
-                          <span className="text-sm text-muted-foreground">Not available</span>
-                        )}
-                      </td>
+            {isLoadingParentMarks ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : filteredParentMarks.length === 0 ? (
+              <div className="text-center py-10 text-muted-foreground">No marks available yet.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Subject</th>
+                      <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("examName")}</th>
+                      <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">
+                        {t("obtainedMarks")}
+                      </th>
+                      <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("percentage")}</th>
+                      <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">{t("gradeLabel")}</th>
+                      <th className="text-left py-3 px-2 text-sm font-medium text-muted-foreground">Exam Paper</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {filteredParentMarks.map((mark) => {
+                      const pct =
+                        typeof mark.percentage === "number"
+                          ? Math.round(mark.percentage * 10) / 10
+                          : mark.totalMarks
+                            ? Math.round((mark.marks / mark.totalMarks) * 1000) / 10
+                            : 0
+
+                      return (
+                        <tr key={mark.id} className="border-b border-border last:border-0">
+                          <td className="py-3 px-2">
+                            <div className="flex items-center gap-3">
+                              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                                <FileText className="h-4 w-4 text-primary" />
+                              </div>
+                              <span className="text-sm font-medium text-foreground">{mark.subjectName}</span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-2 text-sm text-muted-foreground">{mark.examName}</td>
+                          <td className="py-3 px-2 text-sm text-foreground">
+                            {mark.marks}/{mark.totalMarks}
+                          </td>
+                          <td className="py-3 px-2 text-sm text-foreground">{pct}%</td>
+                          <td className="py-3 px-2">
+                            <Badge className={getGradeColor(mark.grade)}>{mark.grade}</Badge>
+                          </td>
+                          <td className="py-3 px-2">
+                            {mark.examPaperUrl ? (
+                              <ExamPaperViewer
+                                paperUrl={mark.examPaperUrl}
+                                studentName={mark.studentName || selectedChild?.name || "Student"}
+                                subject={mark.subjectName}
+                              />
+                            ) : (
+                              <span className="text-sm text-muted-foreground">Not available</span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

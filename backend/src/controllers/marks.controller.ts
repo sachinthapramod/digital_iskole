@@ -3,6 +3,7 @@ import { AuthenticatedRequest } from '../types';
 import { MarksService } from '../services/marks.service';
 import { sendSuccess, sendError } from '../utils/response';
 import logger from '../utils/logger';
+import { db } from '../config/firebase';
 
 const marksService = new MarksService();
 
@@ -97,6 +98,44 @@ export class MarksController {
     try {
       const { id } = req.params;
       const { examId, subjectId } = req.query;
+
+      if (!req.user) {
+        sendError(res, 'AUTH_UNAUTHORIZED', 'User not authenticated', 401);
+        return;
+      }
+
+      // Parents can only access marks for their own children
+      if (req.user.role === 'parent') {
+        const studentDoc = await db.collection('students').doc(id).get();
+        if (!studentDoc.exists) {
+          sendError(res, 'NOT_FOUND', 'Student not found', 404);
+          return;
+        }
+
+        const parentSnapshot = await db.collection('parents')
+          .where('userId', '==', req.user.uid)
+          .limit(1)
+          .get();
+
+        if (parentSnapshot.empty) {
+          sendError(res, 'AUTH_UNAUTHORIZED', 'Parent profile not found', 403);
+          return;
+        }
+
+        const parentDoc = parentSnapshot.docs[0];
+        const parentId = parentDoc.id;
+        const parentData = parentDoc.data() as any;
+        const studentData = studentDoc.data() as any;
+
+        const isLinkedViaParentId = studentData?.parentId === parentId;
+        const childrenArray = parentData?.children || parentData?.childrenIds || [];
+        const isLinkedViaChildrenArray = Array.isArray(childrenArray) && childrenArray.includes(id);
+
+        if (!isLinkedViaParentId && !isLinkedViaChildrenArray) {
+          sendError(res, 'AUTH_UNAUTHORIZED', 'You do not have access to this student', 403);
+          return;
+        }
+      }
       
       const marks = await marksService.getStudentMarks(
         id,
