@@ -1,11 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   Dialog,
   DialogContent,
@@ -16,6 +17,7 @@ import {
 } from "@/components/ui/dialog"
 import { useLanguage } from "@/lib/i18n/context"
 import { useAuth } from "@/lib/auth/context"
+import { apiRequest } from "@/lib/api/client"
 import {
   GraduationCap,
   Calendar,
@@ -35,83 +37,114 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 
-// Mock data for parent's children with detailed information including exam papers
-const childrenData = [
-  {
-    id: "student-1",
-    name: "Kasun Silva",
-    admissionNo: "STU-2024-001",
-    grade: "Grade 10",
-    class: "10-A",
-    dateOfBirth: "2009-05-15",
-    gender: "Male",
-    classTeacher: "Mrs. Perera",
-    classTeacherPhone: "+94 77 123 4567",
-    classTeacherEmail: "perera@school.lk",
-    attendanceRate: 94,
-    averageMarks: 78,
-    rank: 5,
-    totalStudents: 35,
-    recentGrade: "A",
-    trend: "up",
-    subjects: [
-      { name: "Mathematics", marks: 82, grade: "A", trend: "up", examPaper: "/placeholder.svg?height=800&width=600" },
-      { name: "Science", marks: 78, grade: "B+", trend: "stable", examPaper: "/placeholder.svg?height=800&width=600" },
-      { name: "English", marks: 75, grade: "B+", trend: "up", examPaper: null },
-      { name: "Sinhala", marks: 88, grade: "A", trend: "up", examPaper: "/placeholder.svg?height=800&width=600" },
-      { name: "History", marks: 72, grade: "B", trend: "down", examPaper: null },
-      { name: "ICT", marks: 90, grade: "A+", trend: "up", examPaper: "/placeholder.svg?height=800&width=600" },
-    ],
-    recentAttendance: [
-      { date: "2024-12-09", status: "present" },
-      { date: "2024-12-10", status: "present" },
-      { date: "2024-12-11", status: "late" },
-      { date: "2024-12-12", status: "present" },
-      { date: "2024-12-13", status: "present" },
-    ],
-    upcomingExams: [
-      { subject: "Mathematics", date: "2024-12-18", type: "Term Test" },
-      { subject: "Science", date: "2024-12-20", type: "Term Test" },
-    ],
-  },
-  {
-    id: "student-2",
-    name: "Nimali Silva",
-    admissionNo: "STU-2024-002",
-    grade: "Grade 8",
-    class: "8-B",
-    dateOfBirth: "2011-08-22",
-    gender: "Female",
-    classTeacher: "Mr. Kumar",
-    classTeacherPhone: "+94 77 234 5678",
-    classTeacherEmail: "kumar@school.lk",
-    attendanceRate: 98,
-    averageMarks: 85,
-    rank: 3,
-    totalStudents: 38,
-    recentGrade: "A+",
-    trend: "up",
-    subjects: [
-      { name: "Mathematics", marks: 88, grade: "A", trend: "up", examPaper: "/placeholder.svg?height=800&width=600" },
-      { name: "Science", marks: 85, grade: "A", trend: "up", examPaper: "/placeholder.svg?height=800&width=600" },
-      { name: "English", marks: 82, grade: "A", trend: "stable", examPaper: "/placeholder.svg?height=800&width=600" },
-      { name: "Sinhala", marks: 92, grade: "A+", trend: "up", examPaper: null },
-      { name: "History", marks: 80, grade: "A", trend: "up", examPaper: "/placeholder.svg?height=800&width=600" },
-      { name: "ICT", marks: 88, grade: "A", trend: "stable", examPaper: null },
-    ],
-    recentAttendance: [
-      { date: "2024-12-09", status: "present" },
-      { date: "2024-12-10", status: "present" },
-      { date: "2024-12-11", status: "present" },
-      { date: "2024-12-12", status: "present" },
-      { date: "2024-12-13", status: "present" },
-    ],
-    upcomingExams: [
-      { subject: "English", date: "2024-12-17", type: "Term Test" },
-      { subject: "Sinhala", date: "2024-12-19", type: "Term Test" },
-    ],
-  },
-]
+type AttendanceStatus = "present" | "absent" | "late"
+
+interface ParentChildApi {
+  id: string
+  name: string
+  className: string
+  classTeacher?: { id?: string; name?: string }
+}
+
+interface ExamApi {
+  id: string
+  name: string
+  type: string
+  startDate: string
+  endDate: string
+  grades: string[]
+  status: "upcoming" | "ongoing" | "completed"
+}
+
+interface MarkApi {
+  id: string
+  studentId: string
+  examId: string
+  examName: string
+  subjectId: string
+  subjectName: string
+  marks: number
+  totalMarks: number
+  grade: string
+  percentage: number
+  examPaperUrl?: string
+  createdAt?: string
+}
+
+interface ChildDashboardData {
+  id: string
+  name: string
+  admissionNo: string
+  grade: string
+  class: string
+  dateOfBirth: string
+  gender: string
+  classTeacher: string
+  classTeacherPhone: string
+  classTeacherEmail: string
+  attendanceRate: number
+  averageMarks: number
+  rank: number
+  totalStudents: number
+  recentGrade: string
+  trend: "up" | "down" | "stable"
+  subjects: Array<{ name: string; marks: number; grade: string; trend: "up" | "down" | "stable"; examPaper: string | null }>
+  recentAttendance: Array<{ date: string; status: AttendanceStatus }>
+  upcomingExams: Array<{ subject: string; date: string; type: string }>
+}
+
+function formatExamType(type: string): string {
+  return type
+    .replace(/-/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ")
+}
+
+function normalizeGradeFromClassName(className: string): string {
+  if (!className) return ""
+  const gradeMatch = className.match(/grade\s*(\d{1,2})/i)
+  if (gradeMatch?.[1]) return `Grade ${gradeMatch[1]}`
+  const leadingNumberMatch = className.match(/^(\d{1,2})/)
+  if (leadingNumberMatch?.[1]) return `Grade ${leadingNumberMatch[1]}`
+  return className
+}
+
+function gradeNumber(gradeLabel: string): number | null {
+  const m = gradeLabel.match(/grade\s*(\d{1,2})/i)
+  if (!m?.[1]) return null
+  const n = Number(m[1])
+  return Number.isFinite(n) ? n : null
+}
+
+function isExamRelevantToGrade(exam: ExamApi, gradeLabel: string): boolean {
+  if (!exam.grades || exam.grades.length === 0) return true
+  if (exam.grades.some((g) => g.toLowerCase() === "all grades")) return true
+
+  const normalizedGrade = normalizeGradeFromClassName(gradeLabel).toLowerCase()
+  if (exam.grades.some((g) => g.toLowerCase() === normalizedGrade)) return true
+
+  const gradeNum = gradeNumber(gradeLabel)
+  if (gradeNum !== null && exam.grades.some((g) => /grade\s*6\s*to\s*13/i.test(g))) {
+    return gradeNum >= 6 && gradeNum <= 13
+  }
+
+  return false
+}
+
+async function apiGetJson(endpoint: string): Promise<any> {
+  const response = await apiRequest(endpoint)
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok || data?.success === false) {
+    const message =
+      data?.error?.message || data?.message || `Request failed (${response.status} ${response.statusText})`
+    throw new Error(message)
+  }
+
+  return data
+}
 
 // Component to view exam paper
 function ExamPaperViewer({
@@ -159,8 +192,206 @@ function ExamPaperViewer({
 
 export default function MyChildrenPage() {
   const { t } = useLanguage()
-  const { user } = useAuth()
-  const [selectedChild, setSelectedChild] = useState(childrenData[0])
+  const { user, isLoading } = useAuth()
+  const [childrenData, setChildrenData] = useState<ChildDashboardData[]>([])
+  const [selectedChildId, setSelectedChildId] = useState<string>("")
+  const [isLoadingChildren, setIsLoadingChildren] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (isLoading) return
+    if (!user || user.role !== "parent") return
+
+    let isCancelled = false
+
+    async function fetchChildrenDashboard() {
+      setIsLoadingChildren(true)
+      setError(null)
+
+      try {
+        const childrenResponse = (await apiGetJson("/users/parents/me/children")) as any
+        const children = (childrenResponse?.data?.children || []) as ParentChildApi[]
+
+        if (!children.length) {
+          if (!isCancelled) {
+            setChildrenData([])
+            setSelectedChildId("")
+          }
+          return
+        }
+
+        // Fetch exams once; we’ll filter per child.
+        const examsResponse = (await apiGetJson("/exams")) as any
+        const exams = (examsResponse?.data?.exams || []) as ExamApi[]
+
+        const endDateObj = new Date()
+        const startDateObj = new Date()
+        startDateObj.setDate(endDateObj.getDate() - 60)
+        const startDate = startDateObj.toISOString().split("T")[0]
+        const endDate = endDateObj.toISOString().split("T")[0]
+
+        const dashboards = await Promise.all(
+          children.map(async (child) => {
+            const [statsRes, historyRes, marksRes] = await Promise.allSettled([
+              apiGetJson(`/attendance/student/${child.id}/stats`),
+              apiGetJson(
+                `/attendance/student/${child.id}/history?${new URLSearchParams({ startDate, endDate }).toString()}`
+              ),
+              apiGetJson(`/marks/student/${child.id}`),
+            ])
+
+            const stats = statsRes.status === "fulfilled" ? (statsRes.value as any)?.data?.stats : null
+            const history = historyRes.status === "fulfilled" ? ((historyRes.value as any)?.data?.history as any[]) : []
+            const marks = marksRes.status === "fulfilled" ? (((marksRes.value as any)?.data?.marks as MarkApi[]) || []) : []
+
+            const normalizedGrade = normalizeGradeFromClassName(child.className)
+
+            // Recent attendance (last 5 records)
+            const recentAttendance = (history || [])
+              .slice(0, 5)
+              .map((h) => ({ date: h.date, status: h.status as AttendanceStatus }))
+
+            // Subject performance (latest per subject)
+            const marksBySubject = new Map<string, MarkApi[]>()
+            for (const m of marks) {
+              const key = m.subjectName || "Unknown Subject"
+              const arr = marksBySubject.get(key) || []
+              arr.push(m)
+              marksBySubject.set(key, arr)
+            }
+
+            const subjects = Array.from(marksBySubject.entries())
+              .map(([subjectName, list]) => {
+                const sorted = [...list].sort((a, b) => {
+                  const aT = a.createdAt ? new Date(a.createdAt).getTime() : 0
+                  const bT = b.createdAt ? new Date(b.createdAt).getTime() : 0
+                  return bT - aT
+                })
+
+                const latest = sorted[0]
+                const prev = sorted[1]
+                const latestPct =
+                  typeof latest?.percentage === "number"
+                    ? latest.percentage
+                    : latest?.totalMarks
+                      ? Math.round((latest.marks / latest.totalMarks) * 100)
+                      : 0
+                const prevPct =
+                  prev && typeof prev?.percentage === "number"
+                    ? prev.percentage
+                    : prev?.totalMarks
+                      ? Math.round((prev.marks / prev.totalMarks) * 100)
+                      : null
+
+                const trend: "up" | "down" | "stable" =
+                  prevPct === null ? "stable" : latestPct > prevPct ? "up" : latestPct < prevPct ? "down" : "stable"
+
+                return {
+                  name: subjectName,
+                  marks: Math.round(latestPct),
+                  grade: latest?.grade || "-",
+                  trend,
+                  examPaper: latest?.examPaperUrl || null,
+                  _latestAt: latest?.createdAt || "",
+                }
+              })
+              .sort((a, b) => new Date(b._latestAt).getTime() - new Date(a._latestAt).getTime())
+              .slice(0, 6)
+              .map(({ _latestAt, ...rest }) => rest)
+
+            const averageMarks =
+              subjects.length > 0 ? Math.round(subjects.reduce((sum, s) => sum + (s.marks || 0), 0) / subjects.length) : 0
+
+            const mostRecentMark = marks
+              .slice()
+              .sort((a, b) => {
+                const aT = a.createdAt ? new Date(a.createdAt).getTime() : 0
+                const bT = b.createdAt ? new Date(b.createdAt).getTime() : 0
+                return bT - aT
+              })[0]
+
+            const recentGrade = mostRecentMark?.grade || (subjects[0]?.grade ?? "-")
+
+            // Trend based on last two overall marks (fallback to stable)
+            let overallTrend: "up" | "down" | "stable" = "stable"
+            if (marks.length >= 2) {
+              const sorted = marks
+                .slice()
+                .sort((a, b) => {
+                  const aT = a.createdAt ? new Date(a.createdAt).getTime() : 0
+                  const bT = b.createdAt ? new Date(b.createdAt).getTime() : 0
+                  return bT - aT
+                })
+              const latestPct = typeof sorted[0].percentage === "number" ? sorted[0].percentage : 0
+              const prevPct = typeof sorted[1].percentage === "number" ? sorted[1].percentage : 0
+              overallTrend = latestPct > prevPct ? "up" : latestPct < prevPct ? "down" : "stable"
+            }
+
+            const relevantUpcomingExams = (exams || [])
+              .filter((e) => e.status === "upcoming")
+              .filter((e) => isExamRelevantToGrade(e, normalizedGrade))
+              .slice(0, 6)
+              .map((e) => ({
+                subject: e.name,
+                date: e.startDate,
+                type: formatExamType(e.type),
+              }))
+
+            const teacherName = child.classTeacher?.name || ""
+
+            const dashboard: ChildDashboardData = {
+              id: child.id,
+              name: child.name || "Unknown",
+              admissionNo: child.id,
+              grade: normalizedGrade || "-",
+              class: child.className || "-",
+              dateOfBirth: "",
+              gender: "",
+              classTeacher: teacherName || "-",
+              classTeacherPhone: "-",
+              classTeacherEmail: "-",
+              attendanceRate: typeof stats?.attendanceRate === "number" ? stats.attendanceRate : 0,
+              averageMarks,
+              rank: 0,
+              totalStudents: 0,
+              recentGrade,
+              trend: overallTrend,
+              subjects,
+              recentAttendance,
+              upcomingExams: relevantUpcomingExams,
+            }
+
+            return dashboard
+          })
+        )
+
+        if (!isCancelled) {
+          setChildrenData(dashboards)
+          setSelectedChildId((prev) => prev || dashboards[0]?.id || "")
+        }
+      } catch (e: any) {
+        const message = e?.message || "Failed to load children dashboard."
+        if (!isCancelled) {
+          setError(message)
+          setChildrenData([])
+          setSelectedChildId("")
+        }
+      } finally {
+        if (!isCancelled) setIsLoadingChildren(false)
+      }
+    }
+
+    fetchChildrenDashboard()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [isLoading, user])
+
+  const selectedChild = useMemo(() => {
+    if (!childrenData.length) return null
+    return childrenData.find((c) => c.id === selectedChildId) || childrenData[0]
+  }, [childrenData, selectedChildId])
 
   if (user?.role !== "parent") {
     return (
@@ -223,14 +454,31 @@ export default function MyChildrenPage() {
         </Button>
       </div>
 
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Unable to load</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {isLoadingChildren && (
+        <Card>
+          <CardContent className="py-10 text-center text-muted-foreground">Loading your children dashboard…</CardContent>
+        </Card>
+      )}
+
+      {!isLoadingChildren && !childrenData.length && !error && (
+        <Card>
+          <CardContent className="py-10 text-center text-muted-foreground">
+            No children are linked to this parent account yet.
+          </CardContent>
+        </Card>
+      )}
+
       {/* Child Selector Tabs */}
-      <Tabs
-        value={selectedChild.id}
-        onValueChange={(value) => {
-          const child = childrenData.find((c) => c.id === value)
-          if (child) setSelectedChild(child)
-        }}
-      >
+      {childrenData.length > 0 && selectedChild && (
+        <Tabs value={selectedChild.id} onValueChange={(value) => setSelectedChildId(value)}>
         <TabsList className="w-full justify-start gap-2 bg-transparent p-0 h-auto flex-wrap">
           {childrenData.map((child) => (
             <TabsTrigger
@@ -260,9 +508,11 @@ export default function MyChildrenPage() {
                       <p className="text-muted-foreground">{child.admissionNo}</p>
                       <div className="flex items-center gap-2 mt-2">
                         <Badge variant="secondary">{child.class}</Badge>
-                        <Badge variant="outline">
-                          Rank: {child.rank}/{child.totalStudents}
-                        </Badge>
+                        {child.rank > 0 && child.totalStudents > 0 ? (
+                          <Badge variant="outline">
+                            Rank: {child.rank}/{child.totalStudents}
+                          </Badge>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -326,10 +576,14 @@ export default function MyChildrenPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-muted-foreground">Class Rank</p>
-                      <p className="text-2xl font-bold">
-                        {child.rank}
-                        <span className="text-sm font-normal text-muted-foreground">/{child.totalStudents}</span>
-                      </p>
+                      {child.rank > 0 && child.totalStudents > 0 ? (
+                        <p className="text-2xl font-bold">
+                          {child.rank}
+                          <span className="text-sm font-normal text-muted-foreground">/{child.totalStudents}</span>
+                        </p>
+                      ) : (
+                        <p className="text-2xl font-bold">-</p>
+                      )}
                     </div>
                     <div className="h-12 w-12 rounded-full bg-accent/50 flex items-center justify-center">
                       <GraduationCap className="h-6 w-6 text-accent-foreground" />
@@ -486,7 +740,8 @@ export default function MyChildrenPage() {
             </Card>
           </TabsContent>
         ))}
-      </Tabs>
+        </Tabs>
+      )}
     </div>
   )
 }
