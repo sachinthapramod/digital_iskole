@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useLanguage } from "@/lib/i18n/context"
 import { useAuth, type User } from "@/lib/auth/context"
+import { apiRequest } from "@/lib/api/client"
 import { Mail, Phone, MapPin, Calendar, Shield, Save, Eye, EyeOff, Lock, Loader2, AlertCircle, CheckCircle2 } from "lucide-react"
 
 export default function ProfilePage() {
@@ -43,32 +44,58 @@ export default function ProfilePage() {
     }
   }, [user?.id]) // Only initialize when user ID changes (first load or after login)
 
+  // Fetch freshest profile data (e.g., address from parent profile)
+  useEffect(() => {
+    if (!user) return
+
+    let cancelled = false
+
+    async function fetchMe() {
+      try {
+        const response = await apiRequest("/auth/me")
+        const data = await response.json().catch(() => ({}))
+
+        if (!response.ok) return
+
+        const u = data?.data?.user
+        if (!u || cancelled) return
+
+        // Only fill fields that are currently empty to avoid overwriting edits-in-progress
+        setProfileData((prev) => ({
+          firstName: prev.firstName || (u.name?.split(" ")?.[0] || ""),
+          lastName: prev.lastName || (u.name?.split(" ")?.slice(1).join(" ") || ""),
+          phone: prev.phone || u.phone || "",
+          dateOfBirth: prev.dateOfBirth || u.dateOfBirth || "",
+          address: prev.address || u.address || "",
+        }))
+      } catch {
+        // ignore; page still works with local storage values
+      }
+    }
+
+    fetchMe()
+    return () => {
+      cancelled = true
+    }
+  }, [user?.id])
+
+  const normalizePhone = (raw: string) => raw.replace(/[()\s-]/g, "")
+
   const handleSave = async () => {
     setIsSaving(true)
     setMessage(null)
     
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
-      const token = localStorage.getItem("digital-iskole-token")
-      
-      if (!token) {
-        setMessage({ type: 'error', text: 'Not authenticated. Please login again.' })
-        setIsSaving(false)
-        return
-      }
-
       const displayName = `${profileData.firstName} ${profileData.lastName}`.trim()
+      const phone = profileData.phone ? normalizePhone(profileData.phone) : undefined
 
-      const response = await fetch(`${API_URL}/auth/profile`, {
+      const response = await apiRequest(`/auth/profile`, {
         method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           displayName: displayName || undefined,
-          phone: profileData.phone || undefined,
+          phone: phone || undefined,
           dateOfBirth: profileData.dateOfBirth || undefined,
+          address: profileData.address || undefined,
         }),
       })
 
@@ -129,21 +156,8 @@ export default function ProfilePage() {
     setMessage(null)
 
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
-      const token = localStorage.getItem("digital-iskole-token")
-      
-      if (!token) {
-        setMessage({ type: 'error', text: 'Not authenticated. Please login again.' })
-        setIsChangingPassword(false)
-        return
-      }
-
-      const response = await fetch(`${API_URL}/auth/change-password`, {
+      const response = await apiRequest(`/auth/change-password`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           currentPassword: passwords.current,
           newPassword: passwords.new,

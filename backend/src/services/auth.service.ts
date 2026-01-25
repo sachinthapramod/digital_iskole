@@ -17,6 +17,7 @@ export interface LoginResult {
     role: 'admin' | 'teacher' | 'parent';
     phone?: string;
     profilePicture?: string;
+    address?: string;
     assignedClass?: string;
     children?: string[];
   };
@@ -26,6 +27,14 @@ export interface LoginResult {
 }
 
 export class AuthService {
+  private generateInitials(name: string): string {
+    const parts = (name || '').trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+    }
+    return (parts[0] || '').substring(0, 2).toUpperCase();
+  }
+
   async login(email: string, password: string): Promise<LoginResult> {
     try {
       // Use Firebase Auth REST API to verify credentials
@@ -132,12 +141,17 @@ export class AuthService {
         if (teacherDoc.exists) {
           const teacherData = teacherDoc.data();
           profileData.assignedClass = teacherData?.assignedClass;
+          profileData.address = teacherData?.address;
+          // Prefer teacher profile phone if user doc doesn't have one
+          profileData.phone = userData.phone || teacherData?.phone;
         }
       } else if (userData.role === 'parent' && userData.profileId) {
         const parentDoc = await db.collection('parents').doc(userData.profileId).get();
         if (parentDoc.exists) {
           const parentData = parentDoc.data();
           profileData.children = parentData?.children || [];
+          profileData.address = parentData?.address;
+          profileData.phone = userData.phone || parentData?.phone;
         }
       }
 
@@ -155,7 +169,7 @@ export class AuthService {
           email: authData.email || userData.email,
           name: userData.displayName,
           role: userData.role,
-          phone: userData.phone,
+          phone: profileData.phone || userData.phone,
           profilePicture: userData.photoURL,
           dateOfBirth,
           ...profileData,
@@ -226,12 +240,16 @@ export class AuthService {
       if (teacherDoc.exists) {
         const teacherData = teacherDoc.data();
         profileData.assignedClass = teacherData?.assignedClass;
+        profileData.address = teacherData?.address;
+        profileData.phone = userData.phone || teacherData?.phone;
       }
     } else if (userData.role === 'parent' && userData.profileId) {
       const parentDoc = await db.collection('parents').doc(userData.profileId).get();
       if (parentDoc.exists) {
         const parentData = parentDoc.data();
         profileData.children = parentData?.children || [];
+        profileData.address = parentData?.address;
+        profileData.phone = userData.phone || parentData?.phone;
       }
     }
 
@@ -248,7 +266,7 @@ export class AuthService {
       email: userData.email,
       name: userData.displayName,
       role: userData.role,
-      phone: userData.phone,
+      phone: profileData.phone || userData.phone,
       profilePicture: userData.photoURL,
       dateOfBirth,
       ...profileData,
@@ -302,8 +320,16 @@ export class AuthService {
     phone?: string;
     photoURL?: string;
     dateOfBirth?: string;
+    address?: string;
   }): Promise<any> {
     try {
+      // Load user to determine role/profileId for syncing profile collection
+      const userDoc = await db.collection('users').doc(uid).get();
+      if (!userDoc.exists) {
+        throw new ApiErrorResponse('AUTH_USER_NOT_FOUND', 'User not found', 404);
+      }
+      const userData = userDoc.data() as User;
+
       // Update user document in Firestore
       const updateData: any = {
         updatedAt: Timestamp.now(),
@@ -336,6 +362,31 @@ export class AuthService {
       }
 
       await db.collection('users').doc(uid).update(updateData);
+
+      // Sync into role profile docs (parents/teachers) for consistency
+      try {
+        if (userData.role === 'parent' && userData.profileId) {
+          const parentUpdate: any = { updatedAt: Timestamp.now() };
+          if (data.displayName !== undefined) parentUpdate.fullName = data.displayName;
+          if (data.phone !== undefined) parentUpdate.phone = data.phone;
+          if (data.address !== undefined) parentUpdate.address = data.address;
+          await db.collection('parents').doc(userData.profileId).update(parentUpdate);
+        }
+
+        if (userData.role === 'teacher' && userData.profileId) {
+          const teacherUpdate: any = { updatedAt: Timestamp.now() };
+          if (data.displayName !== undefined) {
+            teacherUpdate.fullName = data.displayName;
+            teacherUpdate.nameWithInitials = this.generateInitials(data.displayName);
+          }
+          if (data.phone !== undefined) teacherUpdate.phone = data.phone;
+          if (data.address !== undefined) teacherUpdate.address = data.address;
+          await db.collection('teachers').doc(userData.profileId).update(teacherUpdate);
+        }
+      } catch (syncError: any) {
+        // Don't fail the profile update if syncing role profile fails
+        logger.warn('Failed to sync role profile during updateProfile:', syncError);
+      }
 
       // Get updated user data
       return await this.getCurrentUser(uid);

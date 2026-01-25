@@ -25,9 +25,16 @@ export const changePasswordValidator = [
 
 export const updateProfileValidator = [
   body('displayName').optional().trim().isLength({ min: 2, max: 100 }).withMessage('Display name must be between 2 and 100 characters'),
-  body('phone').optional().trim().matches(/^\+?[1-9]\d{1,14}$/).withMessage('Invalid phone number format'),
+  // Accept common phone formats (spaces/dashes/parentheses) then normalize to E.164-like for storage/validation
+  body('phone')
+    .optional()
+    .trim()
+    .customSanitizer((value) => (typeof value === 'string' ? value.replace(/[()\s-]/g, '') : value))
+    .matches(/^\+?[1-9]\d{1,14}$/)
+    .withMessage('Invalid phone number format'),
   body('photoURL').optional().isURL().withMessage('Invalid photo URL'),
   body('dateOfBirth').optional().isISO8601().withMessage('Invalid date format. Use YYYY-MM-DD format'),
+  body('address').optional().trim().isLength({ max: 250 }).withMessage('Address must be 250 characters or less'),
 ];
 
 

@@ -100,12 +100,13 @@ export class AuthController {
         sendError(res, 'AUTH_UNAUTHORIZED', 'User not authenticated', 401);
         return;
       }
-      const { displayName, phone, photoURL, dateOfBirth } = req.body;
+      const { displayName, phone, photoURL, dateOfBirth, address } = req.body;
       const updatedUser = await authService.updateProfile(req.user.uid, {
         displayName,
         phone,
         photoURL,
         dateOfBirth,
+        address,
       });
       sendSuccess(res, { user: updatedUser }, 'Profile updated successfully');
     } catch (error: any) {
