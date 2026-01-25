@@ -143,11 +143,14 @@ export class ExamsService {
       
       // Create notifications for all users about the new exam
       try {
-        const usersSnapshot = await db.collection('users')
-          .where('status', '==', 'active')
-          .get();
-        
-        const userIds = usersSnapshot.docs.map(doc => doc.id);
+        // Fetch all users, then filter active in memory (avoid composite indexes and support both schemas)
+        const usersSnapshot = await db.collection('users').get();
+        const userIds = usersSnapshot.docs
+          .filter((doc) => {
+            const u = doc.data() as any;
+            return u?.isActive === true || u?.status === 'active';
+          })
+          .map(doc => doc.id);
         
         if (userIds.length > 0) {
           await notificationsService.createBulkNotifications(userIds, {

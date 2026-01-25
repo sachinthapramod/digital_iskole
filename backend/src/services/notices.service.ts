@@ -159,11 +159,14 @@ export class NoticesService {
         let userIds: string[] = [];
         
         if (targetAudiences.includes('all')) {
-          // Get all active users
-          const usersSnapshot = await db.collection('users')
-            .where('status', '==', 'active')
-            .get();
-          userIds = usersSnapshot.docs.map(doc => doc.id);
+          // Get all users, then filter active in memory (avoid composite indexes and support both schemas)
+          const usersSnapshot = await db.collection('users').get();
+          userIds = usersSnapshot.docs
+            .filter((doc) => {
+              const u = doc.data() as any;
+              return u?.isActive === true || u?.status === 'active';
+            })
+            .map(doc => doc.id);
         } else {
           // Get users by role
           const roleMap: Record<string, string> = {
@@ -175,11 +178,18 @@ export class NoticesService {
           for (const audience of targetAudiences) {
             const role = roleMap[audience];
             if (role) {
+              // Query by role only (avoids composite index), then filter active in memory
               const usersSnapshot = await db.collection('users')
                 .where('role', '==', role)
-                .where('status', '==', 'active')
                 .get();
-              userIds.push(...usersSnapshot.docs.map(doc => doc.id));
+              userIds.push(
+                ...usersSnapshot.docs
+                  .filter((doc) => {
+                    const u = doc.data() as any;
+                    return u?.isActive === true || u?.status === 'active';
+                  })
+                  .map(doc => doc.id)
+              );
             }
           }
           
