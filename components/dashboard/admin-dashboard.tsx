@@ -13,16 +13,16 @@ import Link from "next/link"
 interface Notice {
   id: string
   title: string
-  publishedAt: string
-  targetAudience: string[]
+  date: string
+  target: string
 }
 
 interface Exam {
   id: string
   name: string
   date: string
-  className: string
-  status: string
+  grade: string
+  status: "upcoming" | "ongoing" | "completed"
 }
 
 interface Appointment {
@@ -125,18 +125,21 @@ export function AdminDashboard() {
 
       // Get recent notices (last 3, sorted by publishedAt)
       const sortedNotices = notices
-        .filter((n: any) => n.status === 'published')
         .sort((a: any, b: any) => {
-          const dateA = new Date(a.publishedAt || a.createdAt).getTime()
-          const dateB = new Date(b.publishedAt || b.createdAt).getTime()
+          const dateA = new Date(a.publishedAt || a.createdAt || a.date || 0).getTime()
+          const dateB = new Date(b.publishedAt || b.createdAt || b.date || 0).getTime()
           return dateB - dateA
         })
         .slice(0, 3)
         .map((n: any) => ({
           id: n.id,
           title: n.title,
-          date: new Date(n.publishedAt || n.createdAt).toISOString().split('T')[0],
-          target: n.targetAudience?.includes('all') ? 'All' : n.targetAudience?.join(', ') || 'All',
+          date: n.date || (n.publishedAt ? String(n.publishedAt).split('T')[0] : ''),
+          target: n.targetAudience?.includes('all')
+            ? 'All'
+            : Array.isArray(n.targetAudience) && n.targetAudience.length > 0
+              ? n.targetAudience.join(', ')
+              : (n.target || 'All'),
         }))
 
       setRecentNotices(sortedNotices)
@@ -147,20 +150,24 @@ export function AdminDashboard() {
 
       const sortedExams = exams
         .filter((e: any) => {
-          const examDate = new Date(e.date)
-          return examDate >= todayDate && (e.status === 'scheduled' || e.status === 'ongoing')
+          const start = new Date(e.startDate || e.date || 0)
+          // show upcoming + ongoing (backend uses upcoming/ongoing/completed)
+          if (e.status !== 'upcoming' && e.status !== 'ongoing') return false
+          // keep future upcoming; keep ongoing even if started earlier
+          return e.status === 'ongoing' || start >= todayDate
         })
         .sort((a: any, b: any) => {
-          const dateA = new Date(a.date).getTime()
-          const dateB = new Date(b.date).getTime()
+          const dateA = new Date(a.startDate || a.date || 0).getTime()
+          const dateB = new Date(b.startDate || b.date || 0).getTime()
           return dateA - dateB
         })
         .slice(0, 3)
         .map((e: any) => ({
           id: e.id,
           name: e.name,
-          date: new Date(e.date).toISOString().split('T')[0],
-          grade: e.className || 'N/A',
+          date: e.startDate || e.date || '',
+          grade: Array.isArray(e.grades) && e.grades.length > 0 ? e.grades.join(', ') : 'All Grades',
+          status: e.status,
         }))
 
       setUpcomingExams(sortedExams)
