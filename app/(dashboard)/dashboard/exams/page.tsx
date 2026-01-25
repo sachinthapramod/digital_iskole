@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Dialog,
   DialogContent,
@@ -38,6 +39,7 @@ export default function ExamsPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [exams, setExams] = useState<Exam[]>([])
+  const [activeTab, setActiveTab] = useState<"all" | "upcoming" | "ongoing" | "completed">("all")
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState<string | null>(null)
@@ -54,6 +56,7 @@ export default function ExamsPage() {
   const [selectedGrade, setSelectedGrade] = useState("")
 
   const isAdmin = user?.role === "admin"
+  const canView = user?.role === "admin" || user?.role === "teacher"
 
   // Static list of grades from 6 to 13
   const availableGrades = Array.from({ length: 8 }, (_, i) => `Grade ${i + 6}`)
@@ -295,7 +298,7 @@ export default function ExamsPage() {
     }
   }
 
-  if (!isAdmin) {
+  if (!canView) {
     return (
       <div className="space-y-6">
         <div>
@@ -305,7 +308,7 @@ export default function ExamsPage() {
         <Card>
           <CardContent className="pt-6">
             <div className="text-center py-12 text-muted-foreground">
-              You don't have permission to manage exams. Only administrators can create and edit exams.
+              You don't have permission to view exams.
             </div>
           </CardContent>
         </Card>
@@ -319,99 +322,103 @@ export default function ExamsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">{t("exams")}</h1>
-          <p className="text-muted-foreground">Manage examinations and assessments</p>
+          <p className="text-muted-foreground">
+            {isAdmin ? "Manage examinations and assessments" : "View examinations and assessments (read-only)"}
+          </p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Create Exam
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Create New Exam</DialogTitle>
-              <DialogDescription>Schedule a new examination or assessment</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>{t("examName")}</Label>
-                <Input 
-                  placeholder="e.g., First Term Examination 2024" 
-                  value={newExam.name}
-                  onChange={(e) => setNewExam({ ...newExam, name: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t("examType")}</Label>
-                <Select value={newExam.type} onValueChange={(value) => setNewExam({ ...newExam, type: value })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="firstTerm">{t("firstTerm")}</SelectItem>
-                    <SelectItem value="secondTerm">{t("secondTerm")}</SelectItem>
-                    <SelectItem value="thirdTerm">{t("thirdTerm")}</SelectItem>
-                    <SelectItem value="monthlyTest">{t("monthlyTest")}</SelectItem>
-                    <SelectItem value="quiz">{t("quiz")}</SelectItem>
-                    <SelectItem value="assignment">{t("assignment")}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
+        {isAdmin ? (
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="h-4 w-4 mr-2" />
+                Create Exam
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Create New Exam</DialogTitle>
+                <DialogDescription>Schedule a new examination or assessment</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
                 <div className="space-y-2">
-                  <Label>Start Date</Label>
+                  <Label>{t("examName")}</Label>
                   <Input 
-                    type="date" 
-                    value={newExam.startDate}
-                    onChange={(e) => setNewExam({ ...newExam, startDate: e.target.value })}
+                    placeholder="e.g., First Term Examination 2024" 
+                    value={newExam.name}
+                    onChange={(e) => setNewExam({ ...newExam, name: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>End Date</Label>
-                  <Input 
-                    type="date" 
-                    value={newExam.endDate}
-                    onChange={(e) => setNewExam({ ...newExam, endDate: e.target.value })}
-                  />
+                  <Label>{t("examType")}</Label>
+                  <Select value={newExam.type} onValueChange={(value) => setNewExam({ ...newExam, type: value })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="firstTerm">{t("firstTerm")}</SelectItem>
+                      <SelectItem value="secondTerm">{t("secondTerm")}</SelectItem>
+                      <SelectItem value="thirdTerm">{t("thirdTerm")}</SelectItem>
+                      <SelectItem value="monthlyTest">{t("monthlyTest")}</SelectItem>
+                      <SelectItem value="quiz">{t("quiz")}</SelectItem>
+                      <SelectItem value="assignment">{t("assignment")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Start Date</Label>
+                    <Input 
+                      type="date" 
+                      value={newExam.startDate}
+                      onChange={(e) => setNewExam({ ...newExam, startDate: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>End Date</Label>
+                    <Input 
+                      type="date" 
+                      value={newExam.endDate}
+                      onChange={(e) => setNewExam({ ...newExam, endDate: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Applicable Grades</Label>
+                  <Select value={selectedGrade} onValueChange={setSelectedGrade}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select grades" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Grades</SelectItem>
+                      {availableGrades.map((grade) => (
+                        <SelectItem key={grade} value={grade}>{grade}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label>Applicable Grades</Label>
-                <Select value={selectedGrade} onValueChange={setSelectedGrade}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select grades" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Grades</SelectItem>
-                    {availableGrades.map((grade) => (
-                      <SelectItem key={grade} value={grade}>{grade}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => {
-                setDialogOpen(false)
-                setNewExam({ name: "", type: "", startDate: "", endDate: "", grades: [] })
-                setSelectedGrade("")
-              }}>
-                {t("cancel")}
-              </Button>
-              <Button onClick={handleAddExam} disabled={isSaving}>
-                {isSaving ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  t("add")
-                )}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => {
+                  setDialogOpen(false)
+                  setNewExam({ name: "", type: "", startDate: "", endDate: "", grades: [] })
+                  setSelectedGrade("")
+                }}>
+                  {t("cancel")}
+                </Button>
+                <Button onClick={handleAddExam} disabled={isSaving}>
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    t("add")
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        ) : null}
       </div>
 
       {/* Error/Success Messages */}
@@ -475,7 +482,7 @@ export default function ExamsPage() {
       <Card>
         <CardHeader>
           <CardTitle>All Examinations</CardTitle>
-          <CardDescription>View and manage all scheduled examinations</CardDescription>
+          <CardDescription>{isAdmin ? "View and manage all scheduled examinations" : "View all scheduled examinations"}</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -484,150 +491,165 @@ export default function ExamsPage() {
             </div>
           ) : exams.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              No exams found. Create your first exam to get started.
+              No exams found.
             </div>
           ) : (
-            <div className="space-y-4">
-              {exams.map((exam) => (
-                <div key={exam.id} className="flex items-center justify-between p-4 rounded-lg border border-border">
-                  <div className="flex items-center gap-4">
-                    <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
-                      <BookOpen className="h-6 w-6 text-primary" />
-                    </div>
-                    <div>
-                      <h3 className="font-medium text-foreground">{exam.name}</h3>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Calendar className="h-3 w-3 text-muted-foreground" />
-                        <span className="text-sm text-muted-foreground">
-                          {exam.startDate} {exam.startDate !== exam.endDate && `- ${exam.endDate}`}
-                        </span>
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="space-y-4">
+              <TabsList>
+                <TabsTrigger value="all">All ({exams.length})</TabsTrigger>
+                <TabsTrigger value="upcoming">Upcoming ({exams.filter((e) => e.status === "upcoming").length})</TabsTrigger>
+                <TabsTrigger value="ongoing">Ongoing ({exams.filter((e) => e.status === "ongoing").length})</TabsTrigger>
+                <TabsTrigger value="completed">Completed ({exams.filter((e) => e.status === "completed").length})</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value={activeTab}>
+                <div className="space-y-4">
+                  {exams
+                    .filter((e) => (activeTab === "all" ? true : e.status === activeTab))
+                    .map((exam) => (
+                      <div key={exam.id} className="flex items-center justify-between p-4 rounded-lg border border-border">
+                        <div className="flex items-center gap-4">
+                          <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
+                            <BookOpen className="h-6 w-6 text-primary" />
+                          </div>
+                          <div>
+                            <h3 className="font-medium text-foreground">{exam.name}</h3>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Calendar className="h-3 w-3 text-muted-foreground" />
+                              <span className="text-sm text-muted-foreground">
+                                {exam.startDate} {exam.startDate !== exam.endDate && `- ${exam.endDate}`}
+                              </span>
+                            </div>
+                            <div className="flex gap-1 mt-2 flex-wrap">
+                              {exam.grades.map((grade, idx) => (
+                                <Badge key={idx} variant="outline" className="text-xs">
+                                  {grade}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {getTypeBadge(exam.type)}
+                          {getStatusBadge(exam.status)}
+                          {isAdmin ? (
+                            <>
+                              <Button size="sm" variant="outline" onClick={() => handleEditExam(exam)}>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleDeleteExam(exam.id)}
+                                disabled={isDeleting === exam.id}
+                              >
+                                {isDeleting === exam.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </>
+                          ) : null}
+                        </div>
                       </div>
-                      <div className="flex gap-1 mt-2">
-                        {exam.grades.map((grade, idx) => (
-                          <Badge key={idx} variant="outline" className="text-xs">
-                            {grade}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {getTypeBadge(exam.type)}
-                    {getStatusBadge(exam.status)}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleEditExam(exam)}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleDeleteExam(exam.id)}
-                      disabled={isDeleting === exam.id}
-                    >
-                      {isDeleting === exam.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
+                    ))}
                 </div>
-              ))}
-            </div>
+              </TabsContent>
+            </Tabs>
           )}
         </CardContent>
       </Card>
 
       {/* Edit Dialog */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Exam</DialogTitle>
-            <DialogDescription>Update examination details</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>{t("examName")}</Label>
-              <Input 
-                placeholder="e.g., First Term Examination 2024" 
-                value={newExam.name}
-                onChange={(e) => setNewExam({ ...newExam, name: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{t("examType")}</Label>
-              <Select value={newExam.type} onValueChange={(value) => setNewExam({ ...newExam, type: value })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="firstTerm">{t("firstTerm")}</SelectItem>
-                  <SelectItem value="secondTerm">{t("secondTerm")}</SelectItem>
-                  <SelectItem value="thirdTerm">{t("thirdTerm")}</SelectItem>
-                  <SelectItem value="monthlyTest">{t("monthlyTest")}</SelectItem>
-                  <SelectItem value="quiz">{t("quiz")}</SelectItem>
-                  <SelectItem value="assignment">{t("assignment")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+      {isAdmin ? (
+        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Edit Exam</DialogTitle>
+              <DialogDescription>Update examination details</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label>Start Date</Label>
+                <Label>{t("examName")}</Label>
                 <Input 
-                  type="date" 
-                  value={newExam.startDate}
-                  onChange={(e) => setNewExam({ ...newExam, startDate: e.target.value })}
+                  placeholder="e.g., First Term Examination 2024" 
+                  value={newExam.name}
+                  onChange={(e) => setNewExam({ ...newExam, name: e.target.value })}
                 />
               </div>
               <div className="space-y-2">
-                <Label>End Date</Label>
-                <Input 
-                  type="date" 
-                  value={newExam.endDate}
-                  onChange={(e) => setNewExam({ ...newExam, endDate: e.target.value })}
-                />
+                <Label>{t("examType")}</Label>
+                <Select value={newExam.type} onValueChange={(value) => setNewExam({ ...newExam, type: value })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="firstTerm">{t("firstTerm")}</SelectItem>
+                    <SelectItem value="secondTerm">{t("secondTerm")}</SelectItem>
+                    <SelectItem value="thirdTerm">{t("thirdTerm")}</SelectItem>
+                    <SelectItem value="monthlyTest">{t("monthlyTest")}</SelectItem>
+                    <SelectItem value="quiz">{t("quiz")}</SelectItem>
+                    <SelectItem value="assignment">{t("assignment")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Start Date</Label>
+                  <Input 
+                    type="date" 
+                    value={newExam.startDate}
+                    onChange={(e) => setNewExam({ ...newExam, startDate: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>End Date</Label>
+                  <Input 
+                    type="date" 
+                    value={newExam.endDate}
+                    onChange={(e) => setNewExam({ ...newExam, endDate: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Applicable Grades</Label>
+                <Select value={selectedGrade} onValueChange={setSelectedGrade}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select grades" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Grades</SelectItem>
+                    {availableGrades.map((grade) => (
+                      <SelectItem key={grade} value={grade}>{grade}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>Applicable Grades</Label>
-              <Select value={selectedGrade} onValueChange={setSelectedGrade}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select grades" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Grades</SelectItem>
-                  {availableGrades.map((grade) => (
-                    <SelectItem key={grade} value={grade}>{grade}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setEditDialogOpen(false)
-              setEditingExam(null)
-              setNewExam({ name: "", type: "", startDate: "", endDate: "", grades: [] })
-              setSelectedGrade("")
-            }}>
-              {t("cancel")}
-            </Button>
-            <Button onClick={handleSaveEdit} disabled={isSaving}>
-              {isSaving ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                "Save"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => {
+                setEditDialogOpen(false)
+                setEditingExam(null)
+                setNewExam({ name: "", type: "", startDate: "", endDate: "", grades: [] })
+                setSelectedGrade("")
+              }}>
+                {t("cancel")}
+              </Button>
+              <Button onClick={handleSaveEdit} disabled={isSaving}>
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   )
 }
