@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -28,6 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useLanguage } from "@/lib/i18n/context"
 import { useAuth } from "@/lib/auth/context"
+import { apiRequest } from "@/lib/api/client"
 import {
   GraduationCap,
   FileText,
@@ -46,6 +47,532 @@ import {
   Users,
   School,
 } from "lucide-react"
+
+type AdminReportStatus = "completed" | "failed"
+
+interface AdminReportRow {
+  id: string
+  title: string
+  type: "student" | "class" | "school"
+  status: AdminReportStatus
+  createdAt: string
+  studentName?: string
+  className?: string
+  term?: string
+}
+
+interface AdminStudentOption {
+  id: string
+  name: string
+  className: string
+  rollNo?: string
+}
+
+interface AdminClassOption {
+  id: string
+  name: string
+  classTeacher: string
+  students: number
+}
+
+function formatDate(iso?: string) {
+  if (!iso) return ""
+  try {
+    return new Date(iso).toISOString().split("T")[0]
+  } catch {
+    return iso
+  }
+}
+
+async function apiGetJson(endpoint: string): Promise<any> {
+  const response = await apiRequest(endpoint)
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok || data?.success === false) {
+    throw new Error(data?.error?.message || data?.message || `Request failed (${response.status})`)
+  }
+  return data
+}
+
+async function apiPostJson(endpoint: string, body: any): Promise<any> {
+  const response = await apiRequest(endpoint, { method: "POST", body: JSON.stringify(body) })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok || data?.success === false) {
+    throw new Error(data?.error?.message || data?.message || `Request failed (${response.status})`)
+  }
+  return data
+}
+
+async function apiDeleteJson(endpoint: string): Promise<any> {
+  const response = await apiRequest(endpoint, { method: "DELETE" })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok || data?.success === false) {
+    throw new Error(data?.error?.message || data?.message || `Request failed (${response.status})`)
+  }
+  return data
+}
+
+function AdminReportsReal() {
+  const { t } = useLanguage()
+  const [category, setCategory] = useState<"individual" | "class" | "school">("individual")
+  const [classes, setClasses] = useState<AdminClassOption[]>([])
+  const [students, setStudents] = useState<AdminStudentOption[]>([])
+  const [reports, setReports] = useState<AdminReportRow[]>([])
+  const [selectedClassId, setSelectedClassId] = useState<string>("")
+  const [selectedStudentId, setSelectedStudentId] = useState<string>("")
+  const [reportType, setReportType] = useState<string>("Term Report")
+  const [term, setTerm] = useState<string>("Third Term")
+  const [isLoading, setIsLoading] = useState(true)
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const reportTypeOptions = useMemo(
+    () => ["Term Report", "Progress Report", "Attendance Report", "Full Academic Report"],
+    []
+  )
+
+  const selectedClass = useMemo(
+    () => classes.find((c) => c.id === selectedClassId) || null,
+    [classes, selectedClassId]
+  )
+
+  const studentsInSelectedClass = useMemo(() => {
+    if (!selectedClass) return []
+    return students
+      .filter((s) => s.className === selectedClass.name)
+      .slice()
+      .sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo || ""))
+  }, [students, selectedClass])
+
+  const selectedStudent = useMemo(
+    () => students.find((s) => s.id === selectedStudentId) || null,
+    [students, selectedStudentId]
+  )
+
+  const fetchAll = async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const [classesRes, studentsRes, reportsRes] = await Promise.all([
+        apiGetJson("/academic/classes"),
+        apiGetJson("/users/students"),
+        apiGetJson("/reports"),
+      ])
+
+      const classesList = (classesRes?.data?.classes || []).map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        classTeacher: c.classTeacher,
+        students: c.students ?? 0,
+      }))
+      const studentsList = (studentsRes?.data?.students || []).map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        className: s.class,
+        rollNo: s.rollNo,
+      }))
+      const reportsList = (reportsRes?.data?.reports || []).map((r: any) => ({
+        id: r.id,
+        title: r.title,
+        type: r.type,
+        status: r.status,
+        createdAt: r.createdAt,
+        studentName: r.studentName,
+        className: r.className,
+        term: r.term,
+      }))
+      setClasses(classesList)
+      setStudents(studentsList)
+      setReports(reportsList)
+
+      // Keep selections stable where possible
+      setSelectedClassId((prev) => prev || classesList[0]?.id || "")
+    } catch (e: any) {
+      setError(e?.message || "Failed to load reports")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchAll()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    // Ensure student selection stays inside selected class for individual reports
+    if (category !== "individual") return
+    if (!selectedClass) return
+    if (!selectedStudentId || !studentsInSelectedClass.some((s) => s.id === selectedStudentId)) {
+      setSelectedStudentId(studentsInSelectedClass[0]?.id || "")
+    }
+  }, [category, selectedClass, selectedStudentId, studentsInSelectedClass])
+
+  const handleGenerate = async () => {
+    if (category === "individual" && !selectedStudentId) return
+    if (category === "class" && !selectedClassId) return
+    setIsGenerating(true)
+    setError(null)
+    try {
+      if (category === "individual") {
+        await apiPostJson("/reports/student", { studentId: selectedStudentId, term, reportType })
+      } else if (category === "class") {
+        await apiPostJson("/reports/class", { classId: selectedClassId, term, reportType })
+      } else {
+        await apiPostJson("/reports/school", { term, reportType })
+      }
+      await fetchAll()
+    } catch (e: any) {
+      setError(e?.message || "Failed to generate report")
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  const downloadReport = async (id: string) => {
+    try {
+      setError(null)
+      const response = await apiRequest(`/reports/${id}/download`)
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data?.error?.message || data?.message || `Download failed (${response.status})`)
+      }
+      const blob = await response.blob()
+      const disposition = response.headers.get("content-disposition") || ""
+      const match = disposition.match(/filename="([^"]+)"/)
+      const filename = match?.[1] || `report-${id}.pdf`
+
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (e: any) {
+      setError(e?.message || "Failed to download PDF")
+    }
+  }
+
+  const viewReport = async (id: string) => {
+    try {
+      setError(null)
+      const data = await apiGetJson(`/reports/${id}`)
+      const payload = JSON.stringify(data.data?.report?.data || data.data?.report || data, null, 2)
+      const w = window.open("", "_blank")
+      if (w) {
+        w.document.write(
+          `<pre style="white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas;">${payload.replace(/</g, "&lt;")}</pre>`,
+        )
+        w.document.close()
+      }
+    } catch (e: any) {
+      setError(e?.message || "Failed to open report")
+    }
+  }
+
+  const deleteReport = async (id: string) => {
+    try {
+      await apiDeleteJson(`/reports/${id}`)
+      setReports((prev) => prev.filter((r) => r.id !== id))
+    } catch (e: any) {
+      setError(e?.message || "Failed to delete report")
+    }
+  }
+
+  return (
+    <div className="container mx-auto py-6 px-4 space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">{t("reports")}</h1>
+        <p className="text-muted-foreground">Generate and manage reports (admin)</p>
+      </div>
+
+      {error && (
+        <Card>
+          <CardContent className="pt-6 text-destructive">{error}</CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5" /> Generate Reports
+          </CardTitle>
+          <CardDescription>
+            Individual student wise, entire class wise, and school wise reports with PDF download.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Tabs value={category} onValueChange={(v) => setCategory(v as any)}>
+            <TabsList className="grid w-full max-w-lg grid-cols-3">
+              <TabsTrigger value="individual">
+                <User className="mr-2 h-4 w-4" />
+                Individual Student
+              </TabsTrigger>
+              <TabsTrigger value="class">
+                <Users className="mr-2 h-4 w-4" />
+                Entire Class
+              </TabsTrigger>
+              <TabsTrigger value="school">
+                <School className="mr-2 h-4 w-4" />
+                School
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="individual" className="space-y-4 pt-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Select Class</label>
+                  <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select class" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {classes.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name} - {c.classTeacher} ({c.students} students)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Select Student</label>
+                  <Select value={selectedStudentId} onValueChange={setSelectedStudentId} disabled={!selectedClassId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select student" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {studentsInSelectedClass.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.rollNo ? `${s.rollNo} - ` : ""}
+                          {s.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Report Type</label>
+                  <Select value={reportType} onValueChange={setReportType}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select report type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {reportTypeOptions.map((rt) => (
+                        <SelectItem key={rt} value={rt}>
+                          {rt}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Term</label>
+                  <Select value={term} onValueChange={setTerm}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select term" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="First Term">First Term</SelectItem>
+                      <SelectItem value="Second Term">Second Term</SelectItem>
+                      <SelectItem value="Third Term">Third Term</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {selectedStudent && (
+                <div className="text-sm text-muted-foreground">
+                  Selected:{" "}
+                  <span className="font-medium text-foreground">
+                    {selectedStudent.name}
+                  </span>{" "}
+                  ({selectedStudent.className})
+                </div>
+              )}
+
+              <Button onClick={handleGenerate} disabled={isGenerating || !selectedStudentId}>
+                {isGenerating ? "Generating..." : "Generate"}
+              </Button>
+            </TabsContent>
+
+            <TabsContent value="class" className="space-y-4 pt-4">
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Select Class</label>
+                  <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select class" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {classes.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name} - {c.classTeacher} ({c.students} students)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Report Type</label>
+                  <Select value={reportType} onValueChange={setReportType}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select report type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {reportTypeOptions.map((rt) => (
+                        <SelectItem key={rt} value={rt}>
+                          {rt}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Term</label>
+                  <Select value={term} onValueChange={setTerm}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select term" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="First Term">First Term</SelectItem>
+                      <SelectItem value="Second Term">Second Term</SelectItem>
+                      <SelectItem value="Third Term">Third Term</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {selectedClass && (
+                <div className="text-sm text-muted-foreground">
+                  Selected:{" "}
+                  <span className="font-medium text-foreground">{selectedClass.name}</span>{" "}
+                  - {selectedClass.classTeacher} ({selectedClass.students} students)
+                </div>
+              )}
+
+              <Button onClick={handleGenerate} disabled={isGenerating || !selectedClassId}>
+                {isGenerating ? "Generating..." : "Generate"}
+              </Button>
+            </TabsContent>
+
+            <TabsContent value="school" className="space-y-4 pt-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Report Type</label>
+                  <Select value={reportType} onValueChange={setReportType}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select report type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {reportTypeOptions.map((rt) => (
+                        <SelectItem key={rt} value={rt}>
+                          {rt}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Term</label>
+                  <Select value={term} onValueChange={setTerm}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select term" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="First Term">First Term</SelectItem>
+                      <SelectItem value="Second Term">Second Term</SelectItem>
+                      <SelectItem value="Third Term">Third Term</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="text-sm text-muted-foreground">
+                Generate a comprehensive performance report for the entire school.
+              </div>
+
+              <Button onClick={handleGenerate} disabled={isGenerating}>
+                {isGenerating ? "Generating..." : "Generate"}
+              </Button>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Generated Reports</CardTitle>
+          <CardDescription>Latest generated reports</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="py-8 text-center text-muted-foreground">Loading…</div>
+          ) : reports.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground">No reports yet.</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Title</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Student/Class</TableHead>
+                  <TableHead>Term</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {reports.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="font-medium">{r.title}</TableCell>
+                    <TableCell className="capitalize">{r.type}</TableCell>
+                    <TableCell>{r.studentName || r.className || "-"}</TableCell>
+                    <TableCell>{r.term || "-"}</TableCell>
+                    <TableCell>
+                      <Badge variant={r.status === "completed" ? "secondary" : "destructive"}>{r.status}</Badge>
+                    </TableCell>
+                    <TableCell>{formatDate(r.createdAt)}</TableCell>
+                    <TableCell className="text-right space-x-2">
+                      <Button variant="outline" size="sm" onClick={() => viewReport(r.id)}>
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => downloadReport(r.id)}>
+                        <Download className="h-4 w-4" />
+                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="outline" size="sm">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete report?</AlertDialogTitle>
+                            <AlertDialogDescription>This cannot be undone.</AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => deleteReport(r.id)}>Delete</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
 
 // Mock data for parent's children
 const childrenData = [
@@ -1061,6 +1588,11 @@ export default function ReportsPage() {
   const { t } = useLanguage()
   const { user } = useAuth()
 
+  // Admin reports: use real backend-powered UI
+  if (user?.role === "admin") {
+    return <AdminReportsReal />
+  }
+
   // Parent state
   const [selectedChild, setSelectedChild] = useState(childrenData[0])
   const [parentReports, setParentReports] = useState(initialParentReports)
@@ -1495,7 +2027,8 @@ export default function ReportsPage() {
 
   const childReports = parentReports.filter((r) => r.childId === selectedChild.id)
 
-  if (user?.role === "admin") {
+  // Legacy mock admin reports UI (kept for reference, disabled)
+  if (user?.role === "admin" && false) {
     return (
       <div className="container mx-auto py-6 px-4 space-y-6">
         <div>

@@ -1,47 +1,32 @@
 import { Router } from 'express';
 import { authenticateToken } from '../middleware/auth.middleware';
-import { requireAdmin, requireAdminOrTeacher } from '../middleware/role.middleware';
+import { requireAdmin } from '../middleware/role.middleware';
 import { reportRateLimiter } from '../middleware/rateLimit.middleware';
+import reportsController from '../controllers/reports.controller';
 
 const router = Router();
 
 router.use(authenticateToken);
-router.use(reportRateLimiter);
 
-router.get('/', (_req, res) => {
-  res.json({ message: 'Reports list - to be implemented' });
-});
+router.get('/', reportsController.list.bind(reportsController));
 
-router.get('/:id', (_req, res) => {
-  res.json({ message: 'Get report - to be implemented' });
-});
+router.get('/my', reportsController.my.bind(reportsController));
 
-router.post('/student', (_req, res) => {
-  res.json({ message: 'Generate student report - to be implemented' });
-});
+router.get('/:id', reportsController.get.bind(reportsController));
 
-router.post('/class', requireAdminOrTeacher, (_req, res) => {
-  res.json({ message: 'Generate class report - to be implemented' });
-});
+router.get('/:id/download', reportsController.download.bind(reportsController));
 
-router.post('/school', requireAdmin, (_req, res) => {
-  res.json({ message: 'Generate school report - to be implemented' });
-});
+router.delete('/:id', reportsController.remove.bind(reportsController));
 
-router.get('/:id/download', (_req, res) => {
-  res.json({ message: 'Download report - to be implemented' });
-});
+// Generate student report (admin UI)
+router.post('/student', requireAdmin, reportRateLimiter, reportsController.generateStudent.bind(reportsController));
 
-router.delete('/:id', (_req, res) => {
-  res.json({ message: 'Delete report - to be implemented' });
-});
+router.post('/class', requireAdmin, reportRateLimiter, reportsController.generateClass.bind(reportsController));
+
+router.post('/school', requireAdmin, reportRateLimiter, reportsController.generateSchool.bind(reportsController));
 
 router.get('/:id/status', (_req, res) => {
   res.json({ message: 'Report status - to be implemented' });
-});
-
-router.get('/my', (_req, res) => {
-  res.json({ message: 'My reports - to be implemented' });
 });
 
 export default router;

@@ -1,0 +1,583 @@
+import { db } from '../config/firebase';
+import { Timestamp } from 'firebase-admin/firestore';
+import { ApiErrorResponse } from '../utils/response';
+import logger from '../utils/logger';
+
+type ReportStatus = 'completed' | 'failed';
+type ReportType = 'student' | 'class' | 'school';
+
+export interface ReportRecord {
+  id: string;
+  type: ReportType;
+  status: ReportStatus;
+  title: string;
+  createdBy: string;
+  createdByRole: 'admin' | 'teacher' | 'parent';
+  createdAt: string;
+  studentId?: string;
+  studentName?: string;
+  classId?: string;
+  className?: string;
+  term?: string;
+  data?: Record<string, any>;
+}
+
+function calculateGradeFromPercent(percent: number): string {
+  if (percent >= 90) return 'A+';
+  if (percent >= 80) return 'A';
+  if (percent >= 75) return 'B+';
+  if (percent >= 70) return 'B';
+  if (percent >= 65) return 'C+';
+  if (percent >= 60) return 'C';
+  if (percent >= 50) return 'D';
+  return 'F';
+}
+
+export class ReportsService {
+  async listReportsForAdmin(limit: number = 50): Promise<ReportRecord[]> {
+    try {
+      const snapshot = await db.collection('reports').get();
+      const reports: ReportRecord[] = snapshot.docs.map((doc) => {
+        const d = doc.data() as any;
+        const createdAt = d.createdAt as Timestamp;
+        return {
+          id: doc.id,
+          type: d.type,
+          status: d.status,
+          title: d.title,
+          createdBy: d.createdBy,
+          createdByRole: d.createdByRole,
+          createdAt: createdAt ? createdAt.toDate().toISOString() : '',
+          studentId: d.studentId,
+          studentName: d.studentName,
+          classId: d.classId,
+          className: d.className,
+          term: d.term,
+        };
+      });
+
+      reports.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      return reports.slice(0, limit);
+    } catch (error: any) {
+      logger.error('List reports (admin) error:', error);
+      throw new ApiErrorResponse('FETCH_FAILED', 'Failed to fetch reports', 500);
+    }
+  }
+
+  async listReportsForUser(userId: string, limit: number = 50): Promise<ReportRecord[]> {
+    try {
+      const snapshot = await db.collection('reports').where('createdBy', '==', userId).get();
+      const reports: ReportRecord[] = snapshot.docs.map((doc) => {
+        const d = doc.data() as any;
+        const createdAt = d.createdAt as Timestamp;
+        return {
+          id: doc.id,
+          type: d.type,
+          status: d.status,
+          title: d.title,
+          createdBy: d.createdBy,
+          createdByRole: d.createdByRole,
+          createdAt: createdAt ? createdAt.toDate().toISOString() : '',
+          studentId: d.studentId,
+          studentName: d.studentName,
+          classId: d.classId,
+          className: d.className,
+          term: d.term,
+        };
+      });
+
+      reports.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      return reports.slice(0, limit);
+    } catch (error: any) {
+      logger.error('List reports (user) error:', error);
+      throw new ApiErrorResponse('FETCH_FAILED', 'Failed to fetch reports', 500);
+    }
+  }
+
+  async getReport(id: string, userId: string, role: string): Promise<ReportRecord> {
+    const doc = await db.collection('reports').doc(id).get();
+    if (!doc.exists) {
+      throw new ApiErrorResponse('NOT_FOUND', 'Report not found', 404);
+    }
+
+    const d = doc.data() as any;
+    if (role !== 'admin' && d.createdBy !== userId) {
+      throw new ApiErrorResponse('AUTH_UNAUTHORIZED', 'Not authorized to view this report', 403);
+    }
+
+    const createdAt = d.createdAt as Timestamp;
+    return {
+      id: doc.id,
+      type: d.type,
+      status: d.status,
+      title: d.title,
+      createdBy: d.createdBy,
+      createdByRole: d.createdByRole,
+      createdAt: createdAt ? createdAt.toDate().toISOString() : '',
+      studentId: d.studentId,
+      studentName: d.studentName,
+      classId: d.classId,
+      className: d.className,
+      term: d.term,
+      data: d.data,
+    };
+  }
+
+  async deleteReport(id: string, userId: string, role: string): Promise<void> {
+    const doc = await db.collection('reports').doc(id).get();
+    if (!doc.exists) {
+      throw new ApiErrorResponse('NOT_FOUND', 'Report not found', 404);
+    }
+    const d = doc.data() as any;
+    if (role !== 'admin' && d.createdBy !== userId) {
+      throw new ApiErrorResponse('AUTH_UNAUTHORIZED', 'Not authorized to delete this report', 403);
+    }
+    await db.collection('reports').doc(id).delete();
+  }
+
+  async generateStudentReport(params: {
+    studentId: string;
+    term?: string;
+    reportType?: string;
+    createdBy: string;
+    createdByRole: 'admin' | 'teacher' | 'parent';
+  }): Promise<ReportRecord> {
+    try {
+      const studentDoc = await db.collection('students').doc(params.studentId).get();
+      if (!studentDoc.exists) {
+        throw new ApiErrorResponse('NOT_FOUND', 'Student not found', 404);
+      }
+      const student = studentDoc.data() as any;
+
+      // Attendance summary
+      const attendanceSnap = await db.collection('attendance').where('studentId', '==', params.studentId).get();
+      const totalDays = attendanceSnap.size;
+      const presentDays = attendanceSnap.docs.filter((d) => d.data().status === 'present').length;
+      const absentDays = attendanceSnap.docs.filter((d) => d.data().status === 'absent').length;
+      const lateDays = attendanceSnap.docs.filter((d) => d.data().status === 'late').length;
+      const attendanceRate = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 0;
+
+      // Marks summary
+      const marksSnap = await db.collection('marks').where('studentId', '==', params.studentId).get();
+      const marks = marksSnap.docs.map((doc) => doc.data() as any);
+      const bySubject = new Map<string, any[]>();
+      for (const m of marks) {
+        const key = m.subjectName || 'Unknown Subject';
+        const arr = bySubject.get(key) || [];
+        arr.push(m);
+        bySubject.set(key, arr);
+      }
+
+      const subjects = Array.from(bySubject.entries()).map(([subjectName, list]) => {
+        const sorted = list.slice().sort((a, b) => {
+          const aT = (a.updatedAt || a.createdAt)?.toMillis?.() || 0;
+          const bT = (b.updatedAt || b.createdAt)?.toMillis?.() || 0;
+          return bT - aT;
+        });
+        const latest = sorted[0];
+        const percent =
+          typeof latest?.percentage === 'number'
+            ? latest.percentage
+            : latest?.totalMarks
+              ? Math.round((latest.marks / latest.totalMarks) * 100)
+              : 0;
+        return {
+          subjectName,
+          examName: latest?.examName || '',
+          marks: latest?.marks ?? 0,
+          totalMarks: latest?.totalMarks ?? 0,
+          percentage: percent,
+          grade: latest?.grade || calculateGradeFromPercent(percent),
+        };
+      });
+
+      const averagePercent =
+        subjects.length > 0 ? Math.round(subjects.reduce((sum, s) => sum + (s.percentage || 0), 0) / subjects.length) : 0;
+      const overallGrade = calculateGradeFromPercent(averagePercent);
+
+      const reportData = {
+        student: {
+          id: studentDoc.id,
+          name: student.fullName || student.name || '',
+          admissionNumber: student.admissionNumber || student.admissionNo || '',
+          className: student.className || '',
+        },
+        term: params.term || '',
+        reportType: params.reportType || 'Student Report',
+        attendance: {
+          totalDays,
+          presentDays,
+          absentDays,
+          lateDays,
+          attendanceRate,
+        },
+        marks: {
+          subjects,
+          averagePercent,
+          overallGrade,
+        },
+        generatedAt: new Date().toISOString(),
+      };
+
+      const title = `${reportData.student.name} - ${reportData.reportType}${reportData.term ? ` (${reportData.term})` : ''}`;
+
+      const ref = await db.collection('reports').add({
+        type: 'student',
+        status: 'completed',
+        title,
+        createdBy: params.createdBy,
+        createdByRole: params.createdByRole,
+        studentId: studentDoc.id,
+        studentName: reportData.student.name,
+        className: reportData.student.className,
+        term: params.term || '',
+        data: reportData,
+        createdAt: Timestamp.now(),
+      });
+
+      return {
+        id: ref.id,
+        type: 'student',
+        status: 'completed',
+        title,
+        createdBy: params.createdBy,
+        createdByRole: params.createdByRole,
+        createdAt: reportData.generatedAt,
+        studentId: studentDoc.id,
+        studentName: reportData.student.name,
+        className: reportData.student.className,
+        term: params.term || '',
+        data: reportData,
+      };
+    } catch (error: any) {
+      logger.error('Generate student report error:', error);
+      if (error instanceof ApiErrorResponse) throw error;
+      throw new ApiErrorResponse('CREATE_FAILED', error.message || 'Failed to generate student report', 500);
+    }
+  }
+
+  async generateClassReport(params: {
+    classId: string;
+    term?: string;
+    reportType?: string;
+    createdBy: string;
+    createdByRole: 'admin' | 'teacher' | 'parent';
+  }): Promise<ReportRecord> {
+    try {
+      const classDoc = await db.collection('classes').doc(params.classId).get();
+      if (!classDoc.exists) {
+        throw new ApiErrorResponse('NOT_FOUND', 'Class not found', 404);
+      }
+      const classData = classDoc.data() as any;
+      const className = classData?.name || '';
+      const classTeacher = classData?.classTeacherName || classData?.classTeacher || 'Not assigned';
+
+      const studentsSnap = await db
+        .collection('students')
+        .where('className', '==', className)
+        .where('status', '==', 'active')
+        .get();
+      const students = studentsSnap.docs.map((d) => {
+        const s = d.data() as any;
+        return {
+          id: d.id,
+          name: s.fullName || s.name || '',
+          rollNo: s.admissionNumber || s.admissionNo || '',
+        };
+      });
+      students.sort((a, b) => String(a.rollNo).localeCompare(String(b.rollNo)));
+
+      // Attendance for entire class (group by studentId)
+      const attendanceSnap = await db.collection('attendance').where('className', '==', className).get();
+      const attendanceByStudent = new Map<
+        string,
+        { total: number; present: number; absent: number; late: number }
+      >();
+      for (const doc of attendanceSnap.docs) {
+        const a = doc.data() as any;
+        const sid = a.studentId as string;
+        if (!sid) continue;
+        const cur = attendanceByStudent.get(sid) || { total: 0, present: 0, absent: 0, late: 0 };
+        cur.total += 1;
+        if (a.status === 'present') cur.present += 1;
+        else if (a.status === 'absent') cur.absent += 1;
+        else if (a.status === 'late') cur.late += 1;
+        attendanceByStudent.set(sid, cur);
+      }
+
+      // Marks for entire class (group by studentId, then latest per subject)
+      const marksSnap = await db.collection('marks').where('className', '==', className).get();
+      const marksByStudent = new Map<string, any[]>();
+      for (const doc of marksSnap.docs) {
+        const m = doc.data() as any;
+        const sid = m.studentId as string;
+        if (!sid) continue;
+        const arr = marksByStudent.get(sid) || [];
+        arr.push(m);
+        marksByStudent.set(sid, arr);
+      }
+
+      const studentSummaries = students.map((s) => {
+        const att = attendanceByStudent.get(s.id) || { total: 0, present: 0, absent: 0, late: 0 };
+        const attendanceRate = att.total > 0 ? Math.round((att.present / att.total) * 100) : 0;
+
+        const marks = marksByStudent.get(s.id) || [];
+        const bySubject = new Map<string, any[]>();
+        for (const m of marks) {
+          const key = m.subjectId || m.subjectName || 'Unknown Subject';
+          const arr = bySubject.get(key) || [];
+          arr.push(m);
+          bySubject.set(key, arr);
+        }
+        const latestPerSubject = Array.from(bySubject.values()).map((list) => {
+          const sorted = list.slice().sort((a, b) => {
+            const aT = (a.updatedAt || a.createdAt)?.toMillis?.() || 0;
+            const bT = (b.updatedAt || b.createdAt)?.toMillis?.() || 0;
+            return bT - aT;
+          });
+          return sorted[0];
+        });
+        const percentages = latestPerSubject
+          .map((m) => (typeof m?.percentage === 'number' ? m.percentage : 0))
+          .filter((p) => typeof p === 'number');
+        const averagePercent = percentages.length > 0 ? Math.round(percentages.reduce((sum, p) => sum + p, 0) / percentages.length) : 0;
+        const overallGrade = calculateGradeFromPercent(averagePercent);
+
+        return {
+          studentId: s.id,
+          studentName: s.name,
+          rollNo: s.rollNo,
+          attendance: { ...att, attendanceRate },
+          marks: { averagePercent, overallGrade, subjectsCount: latestPerSubject.length },
+        };
+      });
+
+      const classAttendanceRate =
+        studentSummaries.length > 0
+          ? Math.round(studentSummaries.reduce((sum, s) => sum + (s.attendance.attendanceRate || 0), 0) / studentSummaries.length)
+          : 0;
+      const classAverageMarks =
+        studentSummaries.length > 0
+          ? Math.round(studentSummaries.reduce((sum, s) => sum + (s.marks.averagePercent || 0), 0) / studentSummaries.length)
+          : 0;
+
+      const topStudents = studentSummaries
+        .slice()
+        .sort((a, b) => (b.marks.averagePercent || 0) - (a.marks.averagePercent || 0))
+        .slice(0, 10)
+        .map((s, idx) => ({ rank: idx + 1, ...s }));
+
+      const reportData = {
+        class: {
+          id: classDoc.id,
+          name: className,
+          teacher: classTeacher,
+          studentCount: students.length,
+        },
+        term: params.term || '',
+        reportType: params.reportType || 'Term Report',
+        summary: {
+          classAttendanceRate,
+          classAverageMarks,
+        },
+        students: studentSummaries,
+        topStudents,
+        generatedAt: new Date().toISOString(),
+      };
+
+      const title = `${className} - ${reportData.reportType}${reportData.term ? ` (${reportData.term})` : ''}`;
+
+      const ref = await db.collection('reports').add({
+        type: 'class',
+        status: 'completed',
+        title,
+        createdBy: params.createdBy,
+        createdByRole: params.createdByRole,
+        classId: classDoc.id,
+        className: className,
+        term: params.term || '',
+        data: reportData,
+        createdAt: Timestamp.now(),
+      });
+
+      return {
+        id: ref.id,
+        type: 'class',
+        status: 'completed',
+        title,
+        createdBy: params.createdBy,
+        createdByRole: params.createdByRole,
+        createdAt: reportData.generatedAt,
+        classId: classDoc.id,
+        className: className,
+        term: params.term || '',
+        data: reportData,
+      };
+    } catch (error: any) {
+      logger.error('Generate class report error:', error);
+      if (error instanceof ApiErrorResponse) throw error;
+      throw new ApiErrorResponse('CREATE_FAILED', error.message || 'Failed to generate class report', 500);
+    }
+  }
+
+  async generateSchoolReport(params: {
+    term?: string;
+    reportType?: string;
+    createdBy: string;
+    createdByRole: 'admin' | 'teacher' | 'parent';
+  }): Promise<ReportRecord> {
+    try {
+      const [classesSnap, studentsSnap, teachersSnap, marksSnap, attendanceSnap] = await Promise.all([
+        db.collection('classes').get(),
+        db.collection('students').get(),
+        db.collection('teachers').get(),
+        db.collection('marks').get(),
+        db.collection('attendance').get(),
+      ]);
+
+      const classes = classesSnap.docs.map((d) => {
+        const c = d.data() as any;
+        return {
+          id: d.id,
+          name: c?.name || '',
+          teacher: c?.classTeacherName || c?.classTeacher || 'Not assigned',
+        };
+      });
+
+      const studentsAll = studentsSnap.docs.map((d) => {
+        const s = d.data() as any;
+        return {
+          id: d.id,
+          name: s?.fullName || s?.name || '',
+          className: s?.className || '',
+          status: s?.status,
+        };
+      });
+      const activeStudents = studentsAll.filter((s) => s.status === 'active' || s.status === undefined);
+
+      const studentsByClass = new Map<string, number>();
+      const studentMeta = new Map<string, { name: string; className: string }>();
+      for (const s of activeStudents) {
+        studentsByClass.set(s.className, (studentsByClass.get(s.className) || 0) + 1);
+        studentMeta.set(s.id, { name: s.name, className: s.className });
+      }
+
+      // Attendance by class
+      const attendanceByClass = new Map<string, { total: number; present: number }>()
+      for (const doc of attendanceSnap.docs) {
+        const a = doc.data() as any;
+        const cn = a.className as string;
+        if (!cn) continue;
+        const cur = attendanceByClass.get(cn) || { total: 0, present: 0 };
+        cur.total += 1;
+        if (a.status === 'present') cur.present += 1;
+        attendanceByClass.set(cn, cur);
+      }
+
+      // Marks: build per-student average (latest per subject)
+      const marksByStudent = new Map<string, any[]>();
+      for (const doc of marksSnap.docs) {
+        const m = doc.data() as any;
+        const sid = m.studentId as string;
+        if (!sid) continue;
+        const arr = marksByStudent.get(sid) || [];
+        arr.push(m);
+        marksByStudent.set(sid, arr);
+      }
+
+      const studentAverages: Array<{ studentId: string; name: string; className: string; averagePercent: number }> = [];
+      for (const [studentId, list] of marksByStudent.entries()) {
+        const meta = studentMeta.get(studentId);
+        if (!meta) continue; // ignore marks for non-active/unknown students
+        const bySubject = new Map<string, any[]>();
+        for (const m of list) {
+          const key = m.subjectId || m.subjectName || 'Unknown Subject';
+          const arr = bySubject.get(key) || [];
+          arr.push(m);
+          bySubject.set(key, arr);
+        }
+        const latest = Array.from(bySubject.values()).map((arr) => {
+          const sorted = arr.slice().sort((a, b) => {
+            const aT = (a.updatedAt || a.createdAt)?.toMillis?.() || 0;
+            const bT = (b.updatedAt || b.createdAt)?.toMillis?.() || 0;
+            return bT - aT;
+          });
+          return sorted[0];
+        });
+        const percents = latest.map((m) => (typeof m?.percentage === 'number' ? m.percentage : 0)).filter((p) => typeof p === 'number');
+        const avg = percents.length > 0 ? Math.round(percents.reduce((sum, p) => sum + p, 0) / percents.length) : 0;
+        studentAverages.push({ studentId, name: meta.name, className: meta.className, averagePercent: avg });
+      }
+
+      const topStudents = studentAverages
+        .slice()
+        .sort((a, b) => b.averagePercent - a.averagePercent)
+        .slice(0, 10)
+        .map((s, idx) => ({ rank: idx + 1, ...s, grade: calculateGradeFromPercent(s.averagePercent) }));
+
+      // Class-wise summary
+      const classSummaries = classes.map((c) => {
+        const count = studentsByClass.get(c.name) || 0;
+        const att = attendanceByClass.get(c.name) || { total: 0, present: 0 };
+        const attendanceRate = att.total > 0 ? Math.round((att.present / att.total) * 100) : 0;
+
+        const classStudents = studentAverages.filter((s) => s.className === c.name);
+        const avgMarks = classStudents.length > 0 ? Math.round(classStudents.reduce((sum, s) => sum + s.averagePercent, 0) / classStudents.length) : 0;
+
+        return {
+          classId: c.id,
+          className: c.name,
+          teacher: c.teacher,
+          students: count,
+          averageMarks: avgMarks,
+          attendanceRate,
+        };
+      });
+
+      const reportData = {
+        term: params.term || '',
+        reportType: params.reportType || 'School Report',
+        summary: {
+          totalStudents: activeStudents.length,
+          totalClasses: classes.length,
+          totalTeachers: teachersSnap.size,
+        },
+        classes: classSummaries,
+        topStudents,
+        generatedAt: new Date().toISOString(),
+      };
+
+      const title = `School - ${reportData.reportType}${reportData.term ? ` (${reportData.term})` : ''}`;
+
+      const ref = await db.collection('reports').add({
+        type: 'school',
+        status: 'completed',
+        title,
+        createdBy: params.createdBy,
+        createdByRole: params.createdByRole,
+        term: params.term || '',
+        data: reportData,
+        createdAt: Timestamp.now(),
+      });
+
+      return {
+        id: ref.id,
+        type: 'school',
+        status: 'completed',
+        title,
+        createdBy: params.createdBy,
+        createdByRole: params.createdByRole,
+        createdAt: reportData.generatedAt,
+        term: params.term || '',
+        data: reportData,
+      };
+    } catch (error: any) {
+      logger.error('Generate school report error:', error);
+      if (error instanceof ApiErrorResponse) throw error;
+      throw new ApiErrorResponse('CREATE_FAILED', error.message || 'Failed to generate school report', 500);
+    }
+  }
+}
+
+export default new ReportsService();
+
