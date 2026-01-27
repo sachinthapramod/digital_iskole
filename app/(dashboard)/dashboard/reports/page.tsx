@@ -124,6 +124,8 @@ function AdminReportsReal() {
   const [isLoading, setIsLoading] = useState(true)
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [viewingReport, setViewingReport] = useState<any | null>(null)
+  const [viewDialogOpen, setViewDialogOpen] = useState(false)
 
   const reportTypeOptions = useMemo(
     () => ["Term Report", "Progress Report", "Attendance Report", "Full Academic Report"],
@@ -147,6 +149,17 @@ function AdminReportsReal() {
     () => students.find((s) => s.id === selectedStudentId) || null,
     [students, selectedStudentId]
   )
+
+  // Filter reports based on selected category
+  const filteredReports = useMemo(() => {
+    const typeMap: Record<"individual" | "class" | "school", "student" | "class" | "school"> = {
+      individual: "student",
+      class: "class",
+      school: "school",
+    }
+    const targetType = typeMap[category]
+    return reports.filter((r) => r.type === targetType)
+  }, [reports, category])
 
   const fetchAll = async () => {
     setIsLoading(true)
@@ -258,14 +271,9 @@ function AdminReportsReal() {
     try {
       setError(null)
       const data = await apiGetJson(`/reports/${id}`)
-      const payload = JSON.stringify(data.data?.report?.data || data.data?.report || data, null, 2)
-      const w = window.open("", "_blank")
-      if (w) {
-        w.document.write(
-          `<pre style="white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas;">${payload.replace(/</g, "&lt;")}</pre>`,
-        )
-        w.document.close()
-      }
+      const report = data.data?.report || data
+      setViewingReport(report)
+      setViewDialogOpen(true)
     } catch (e: any) {
       setError(e?.message || "Failed to open report")
     }
@@ -507,13 +515,19 @@ function AdminReportsReal() {
       <Card>
         <CardHeader>
           <CardTitle>Generated Reports</CardTitle>
-          <CardDescription>Latest generated reports</CardDescription>
+          <CardDescription>
+            {category === "individual" && "Individual student reports"}
+            {category === "class" && "Entire class reports"}
+            {category === "school" && "School-wide reports"}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="py-8 text-center text-muted-foreground">Loading…</div>
-          ) : reports.length === 0 ? (
-            <div className="py-8 text-center text-muted-foreground">No reports yet.</div>
+          ) : filteredReports.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground">
+              No {category === "individual" ? "student" : category === "class" ? "class" : "school"} reports yet.
+            </div>
           ) : (
             <Table>
               <TableHeader>
@@ -528,7 +542,7 @@ function AdminReportsReal() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {reports.map((r) => (
+                {filteredReports.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell className="font-medium">{r.title}</TableCell>
                     <TableCell className="capitalize">{r.type}</TableCell>
@@ -570,6 +584,334 @@ function AdminReportsReal() {
           )}
         </CardContent>
       </Card>
+
+      {/* Report Viewer Dialog */}
+      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{viewingReport?.title || "Report Details"}</DialogTitle>
+            <DialogDescription>
+              {viewingReport?.type === "student" && "Student Report"}
+              {viewingReport?.type === "class" && "Class Report"}
+              {viewingReport?.type === "school" && "School Report"}
+            </DialogDescription>
+          </DialogHeader>
+
+          {viewingReport?.data && (
+            <div className="space-y-6 mt-4">
+              {/* Student Report */}
+              {viewingReport.type === "student" && viewingReport.data.student && (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Student Information</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        <div>
+                          <span className="text-sm text-muted-foreground">Name:</span>
+                          <p className="font-medium">{viewingReport.data.student.name}</p>
+                        </div>
+                        <div>
+                          <span className="text-sm text-muted-foreground">Class:</span>
+                          <p className="font-medium">{viewingReport.data.student.className}</p>
+                        </div>
+                        {viewingReport.data.student.admissionNumber && (
+                          <div>
+                            <span className="text-sm text-muted-foreground">Admission No:</span>
+                            <p className="font-medium">{viewingReport.data.student.admissionNumber}</p>
+                          </div>
+                        )}
+                        {viewingReport.data.term && (
+                          <div>
+                            <span className="text-sm text-muted-foreground">Term:</span>
+                            <p className="font-medium">{viewingReport.data.term}</p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Overall Performance</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <p className="text-sm text-muted-foreground">Average</p>
+                            <p className="text-2xl font-bold">{viewingReport.data.marks?.averagePercent || 0}%</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Grade</p>
+                            <p className="text-2xl font-bold">{viewingReport.data.marks?.overallGrade || "-"}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Attendance</p>
+                            <p className="text-2xl font-bold">{viewingReport.data.attendance?.attendanceRate || 0}%</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Subjects</p>
+                            <p className="text-2xl font-bold">{viewingReport.data.marks?.subjects?.length || 0}</p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Attendance Summary</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-4 gap-4">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Total Days</p>
+                          <p className="text-xl font-semibold">{viewingReport.data.attendance?.totalDays || 0}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Present</p>
+                          <p className="text-xl font-semibold text-green-600">{viewingReport.data.attendance?.presentDays || 0}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Absent</p>
+                          <p className="text-xl font-semibold text-red-600">{viewingReport.data.attendance?.absentDays || 0}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Late</p>
+                          <p className="text-xl font-semibold text-yellow-600">{viewingReport.data.attendance?.lateDays || 0}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {viewingReport.data.marks?.subjects && viewingReport.data.marks.subjects.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Subject Marks</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Subject</TableHead>
+                              <TableHead>Exam</TableHead>
+                              <TableHead className="text-right">Marks</TableHead>
+                              <TableHead className="text-right">Total</TableHead>
+                              <TableHead className="text-right">Percentage</TableHead>
+                              <TableHead className="text-center">Grade</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {viewingReport.data.marks.subjects.map((subject: any, idx: number) => (
+                              <TableRow key={idx}>
+                                <TableCell className="font-medium">{subject.subjectName}</TableCell>
+                                <TableCell>{subject.examName || "-"}</TableCell>
+                                <TableCell className="text-right">{subject.marks ?? 0}</TableCell>
+                                <TableCell className="text-right">{subject.totalMarks ?? 0}</TableCell>
+                                <TableCell className="text-right">{subject.percentage ?? 0}%</TableCell>
+                                <TableCell className="text-center">
+                                  <Badge variant="secondary">{subject.grade || "-"}</Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
+              )}
+
+              {/* Class Report */}
+              {viewingReport.type === "class" && viewingReport.data.class && (
+                <>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Class Information</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      <div>
+                        <span className="text-sm text-muted-foreground">Class:</span>
+                        <p className="font-medium text-lg">{viewingReport.data.class.name}</p>
+                      </div>
+                      <div>
+                        <span className="text-sm text-muted-foreground">Class Teacher:</span>
+                        <p className="font-medium">{viewingReport.data.class.teacher}</p>
+                      </div>
+                      <div>
+                        <span className="text-sm text-muted-foreground">Students:</span>
+                        <p className="font-medium">{viewingReport.data.class.studentCount}</p>
+                      </div>
+                      {viewingReport.data.term && (
+                        <div>
+                          <span className="text-sm text-muted-foreground">Term:</span>
+                          <p className="font-medium">{viewingReport.data.term}</p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Class Average</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-3xl font-bold">{viewingReport.data.summary?.classAverageMarks || 0}%</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Class Attendance</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-3xl font-bold">{viewingReport.data.summary?.classAttendanceRate || 0}%</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {viewingReport.data.topStudents && viewingReport.data.topStudents.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Top Students</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Rank</TableHead>
+                              <TableHead>Roll No</TableHead>
+                              <TableHead>Name</TableHead>
+                              <TableHead className="text-right">Average %</TableHead>
+                              <TableHead className="text-right">Attendance</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {viewingReport.data.topStudents.map((student: any, idx: number) => (
+                              <TableRow key={idx}>
+                                <TableCell className="font-medium">#{student.rank || idx + 1}</TableCell>
+                                <TableCell>{student.rollNo || "-"}</TableCell>
+                                <TableCell className="font-medium">{student.studentName}</TableCell>
+                                <TableCell className="text-right">{student.marks?.averagePercent || 0}%</TableCell>
+                                <TableCell className="text-right">{student.attendance?.attendanceRate || 0}%</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
+              )}
+
+              {/* School Report */}
+              {viewingReport.type === "school" && (
+                <>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">School Summary</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Total Students</p>
+                          <p className="text-2xl font-bold">{viewingReport.data.summary?.totalStudents || 0}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Total Classes</p>
+                          <p className="text-2xl font-bold">{viewingReport.data.summary?.totalClasses || 0}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Total Teachers</p>
+                          <p className="text-2xl font-bold">{viewingReport.data.summary?.totalTeachers || 0}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {viewingReport.data.classes && viewingReport.data.classes.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Class-wise Performance</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Class</TableHead>
+                              <TableHead>Teacher</TableHead>
+                              <TableHead className="text-right">Students</TableHead>
+                              <TableHead className="text-right">Avg Marks</TableHead>
+                              <TableHead className="text-right">Attendance</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {viewingReport.data.classes.map((cls: any, idx: number) => (
+                              <TableRow key={idx}>
+                                <TableCell className="font-medium">{cls.className}</TableCell>
+                                <TableCell>{cls.teacher}</TableCell>
+                                <TableCell className="text-right">{cls.students || 0}</TableCell>
+                                <TableCell className="text-right">{cls.averageMarks || 0}%</TableCell>
+                                <TableCell className="text-right">{cls.attendanceRate || 0}%</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {viewingReport.data.topStudents && viewingReport.data.topStudents.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Top Students (School-wide)</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Rank</TableHead>
+                              <TableHead>Name</TableHead>
+                              <TableHead>Class</TableHead>
+                              <TableHead className="text-right">Average %</TableHead>
+                              <TableHead className="text-center">Grade</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {viewingReport.data.topStudents.map((student: any, idx: number) => (
+                              <TableRow key={idx}>
+                                <TableCell className="font-medium">#{student.rank || idx + 1}</TableCell>
+                                <TableCell className="font-medium">{student.name}</TableCell>
+                                <TableCell>{student.className}</TableCell>
+                                <TableCell className="text-right">{student.averagePercent || 0}%</TableCell>
+                                <TableCell className="text-center">
+                                  <Badge variant="secondary">{student.grade || "-"}</Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewDialogOpen(false)}>
+              Close
+            </Button>
+            {viewingReport?.id && (
+              <Button onClick={() => { setViewDialogOpen(false); downloadReport(viewingReport.id) }}>
+                <Download className="mr-2 h-4 w-4" />
+                Download PDF
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -463,7 +463,7 @@ export class ReportsService {
       }
 
       // Attendance by class
-      const attendanceByClass = new Map<string, { total: number; present: number }>()
+      const attendanceByClass = new Map<string, { total: number; present: number }>();
       for (const doc of attendanceSnap.docs) {
         const a = doc.data() as any;
         const cn = a.className as string;
