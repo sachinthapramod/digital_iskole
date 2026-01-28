@@ -1936,14 +1936,26 @@ export default function ReportsPage() {
   }
 
   // Parent state
-  const [selectedChild, setSelectedChild] = useState(childrenData[0])
-  const [parentReports, setParentReports] = useState(initialParentReports)
+  const [parentChildren, setParentChildren] = useState<Array<{ id: string; name: string; className: string }>>([])
+  const [selectedChildId, setSelectedChildId] = useState<string>("")
+  const [parentReports, setParentReports] = useState<AdminReportRow[]>([])
   const [reportType, setReportType] = useState("Term Report")
   const [selectedTerm, setSelectedTerm] = useState("Third Term")
   const [isGenerating, setIsGenerating] = useState(false)
+  const [isLoadingParent, setIsLoadingParent] = useState(true)
   const [previewOpen, setPreviewOpen] = useState(false)
-  const [viewingReport, setViewingReport] = useState<(typeof initialParentReports)[0] | null>(null)
+  const [viewingReport, setViewingReport] = useState<any | null>(null)
   const [viewParentDialogOpen, setViewParentDialogOpen] = useState(false)
+
+  const selectedChild = useMemo(
+    () => parentChildren.find((c) => c.id === selectedChildId) || null,
+    [parentChildren, selectedChildId]
+  )
+
+  const childReports = useMemo(
+    () => parentReports.filter((r) => r.studentId === selectedChildId),
+    [parentReports, selectedChildId]
+  )
 
   // Teacher state
   const [teacherReportCategory, setTeacherReportCategory] = useState<"individual" | "class">("individual")
@@ -1973,37 +1985,125 @@ export default function ReportsPage() {
     (s) => s.class === adminSelectedClass.name.replace("Grade ", ""),
   )
 
-  // Parent handlers
-  const handleGenerateReport = () => {
-    setIsGenerating(true)
-    setTimeout(() => {
-      const newReport = {
-        id: `report-${Date.now()}`,
-        childId: selectedChild.id,
-        childName: selectedChild.name,
-        type: reportType,
-        term: selectedTerm,
-        generatedAt: new Date().toISOString(),
-        academicYear: "2024",
+  // Fetch parent children and reports
+  useEffect(() => {
+    if (user?.role !== "parent") return
+
+    const fetchParentData = async () => {
+      setIsLoadingParent(true)
+      try {
+        const [childrenRes, reportsRes] = await Promise.all([
+          apiGetJson("/users/parents/me/children"),
+          apiGetJson("/reports/my"),
+        ])
+
+        const childrenList = (childrenRes?.data?.children || []).map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          className: c.className,
+        }))
+        const reportsList = (reportsRes?.data?.reports || []).map((r: any) => ({
+          id: r.id,
+          title: r.title,
+          type: r.type,
+          status: r.status,
+          createdAt: r.createdAt,
+          studentId: r.studentId,
+          studentName: r.studentName,
+          className: r.className,
+          term: r.term,
+        }))
+
+        setParentChildren(childrenList)
+        setParentReports(reportsList)
+        if (childrenList.length > 0 && !selectedChildId) {
+          setSelectedChildId(childrenList[0].id)
+        }
+      } catch (e: any) {
+        console.error("Failed to fetch parent data:", e)
+      } finally {
+        setIsLoadingParent(false)
       }
-      setParentReports([newReport, ...parentReports])
-      setIsGenerating(false)
+    }
+
+    fetchParentData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.role])
+
+  // Parent handlers
+  const handleGenerateReport = async () => {
+    if (!selectedChildId) return
+    setIsGenerating(true)
+    try {
+      await apiPostJson("/reports/student", {
+        studentId: selectedChildId,
+        term: selectedTerm,
+        reportType: reportType,
+      })
+      // Refresh reports
+      const reportsRes = await apiGetJson("/reports/my")
+      const reportsList = (reportsRes?.data?.reports || []).map((r: any) => ({
+        id: r.id,
+        title: r.title,
+        type: r.type,
+        status: r.status,
+        createdAt: r.createdAt,
+        studentId: r.studentId,
+        studentName: r.studentName,
+        className: r.className,
+        term: r.term,
+      }))
+      setParentReports(reportsList)
       setPreviewOpen(false)
-    }, 1500)
+    } catch (e: any) {
+      console.error("Failed to generate report:", e)
+    } finally {
+      setIsGenerating(false)
+    }
   }
 
-  const handleDeleteReport = (reportId: string) => {
-    setParentReports(parentReports.filter((r) => r.id !== reportId))
+  const handleDeleteReport = async (reportId: string) => {
+    try {
+      await apiDeleteJson(`/reports/${reportId}`)
+      setParentReports((prev) => prev.filter((r) => r.id !== reportId))
+    } catch (e: any) {
+      console.error("Failed to delete report:", e)
+    }
   }
 
-  const handleDownloadPDF = (report: (typeof initialParentReports)[0]) => {
-    const child = childrenData.find((c) => c.id === report.childId)
-    if (!child) return
-    const printWindow = window.open("", "_blank")
-    if (printWindow) {
-      printWindow.document.write(generatePrintHTML(child, report))
-      printWindow.document.close()
-      printWindow.print()
+  const handleDownloadPDF = async (reportId: string) => {
+    try {
+      const response = await apiRequest(`/reports/${reportId}/download`)
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data?.error?.message || data?.message || `Download failed (${response.status})`)
+      }
+      const blob = await response.blob()
+      const disposition = response.headers.get("content-disposition") || ""
+      const match = disposition.match(/filename="([^"]+)"/)
+      const filename = match?.[1] || `report-${reportId}.pdf`
+
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (e: any) {
+      console.error("Failed to download PDF:", e)
+    }
+  }
+
+  const handleViewReport = async (reportId: string) => {
+    try {
+      const data = await apiGetJson(`/reports/${reportId}`)
+      const report = data.data?.report || data
+      setViewingReport(report)
+      setViewParentDialogOpen(true)
+    } catch (e: any) {
+      console.error("Failed to view report:", e)
     }
   }
 
@@ -2367,7 +2467,6 @@ export default function ReportsPage() {
   `
   }
 
-  const childReports = parentReports.filter((r) => r.childId === selectedChild.id)
 
   // Legacy mock admin reports UI (kept for reference, disabled)
   if (user?.role === "admin" && false) {
@@ -3199,199 +3298,306 @@ export default function ReportsPage() {
         <p className="text-muted-foreground">{t("reportsDescription")}</p>
       </div>
 
-      {/* Child Selection Tabs */}
-      {childrenData.length > 1 && (
-        <Tabs
-          value={selectedChild.id}
-          onValueChange={(value) => {
-            const child = childrenData.find((c) => c.id === value)
-            if (child) setSelectedChild(child)
-          }}
-        >
-          <TabsList>
-            {childrenData.map((child) => (
-              <TabsTrigger key={child.id} value={child.id} className="gap-2">
-                <GraduationCap className="h-4 w-4" />
-                {child.name}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+      {isLoadingParent ? (
+        <div className="py-8 text-center text-muted-foreground">Loading...</div>
+      ) : parentChildren.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            <p>No children found. Please contact the administrator.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          {/* Child Selection Tabs */}
+          {parentChildren.length > 1 && (
+            <Tabs value={selectedChildId} onValueChange={setSelectedChildId}>
+              <TabsList>
+                {parentChildren.map((child) => (
+                  <TabsTrigger key={child.id} value={child.id} className="gap-2">
+                    <GraduationCap className="h-4 w-4" />
+                    {child.name}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          )}
+
+          {selectedChild && (
+            <>
+              {/* Generate Report Card */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Plus className="h-5 w-5" />
+                    {t("generateReport")}
+                  </CardTitle>
+                  <CardDescription>
+                    Generate a report for {selectedChild.name} ({selectedChild.className})
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">{t("reportType")}</label>
+                      <Select value={reportType} onValueChange={setReportType}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Term Report">{t("termReport")}</SelectItem>
+                          <SelectItem value="Progress Report">{t("progressReport")}</SelectItem>
+                          <SelectItem value="Attendance Report">{t("attendanceReport")}</SelectItem>
+                          <SelectItem value="Full Academic Report">{t("fullAcademicReport")}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">{t("selectTerm")}</label>
+                      <Select value={selectedTerm} onValueChange={setSelectedTerm}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="First Term">{t("firstTerm")}</SelectItem>
+                          <SelectItem value="Second Term">{t("secondTerm")}</SelectItem>
+                          <SelectItem value="Third Term">{t("thirdTerm")}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-end">
+                      <Button onClick={handleGenerateReport} disabled={isGenerating || !selectedChildId} className="w-full">
+                        {isGenerating ? "Generating..." : "Generate Report"}
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Generated Reports */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="h-5 w-5" />
+                    {t("generatedReports")}
+                  </CardTitle>
+                  <CardDescription>
+                    {childReports.length} {t("reportsFor")} {selectedChild.name}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {childReports.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <p>{t("noReportsYet")}</p>
+                      <p className="text-sm">{t("generateFirstReport")}</p>
+                    </div>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Title</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Term</TableHead>
+                          <TableHead>Generated</TableHead>
+                          <TableHead className="text-right">{t("actions")}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {childReports.map((report) => (
+                          <TableRow key={report.id}>
+                            <TableCell className="font-medium">{report.title}</TableCell>
+                            <TableCell className="capitalize">{report.type}</TableCell>
+                            <TableCell>{report.term || "-"}</TableCell>
+                            <TableCell>{formatDate(report.createdAt)}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button variant="ghost" size="icon" onClick={() => handleViewReport(report.id)}>
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" onClick={() => handleDownloadPDF(report.id)}>
+                                  <Download className="h-4 w-4" />
+                                </Button>
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>{t("deleteReport")}</AlertDialogTitle>
+                                      <AlertDialogDescription>{t("deleteReportConfirmation")}</AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+                                      <AlertDialogAction
+                                        onClick={() => handleDeleteReport(report.id)}
+                                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                      >
+                                        {t("delete")}
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </>
       )}
 
-      {/* Generate Report Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Plus className="h-5 w-5" />
-            {t("generateReport")}
-          </CardTitle>
-          <CardDescription>{t("generateReportDescription")}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("reportType")}</label>
-              <Select value={reportType} onValueChange={setReportType}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Term Report">{t("termReport")}</SelectItem>
-                  <SelectItem value="Progress Report">{t("progressReport")}</SelectItem>
-                  <SelectItem value="Attendance Report">{t("attendanceReport")}</SelectItem>
-                  <SelectItem value="Full Academic Report">{t("fullAcademicReport")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">{t("selectTerm")}</label>
-              <Select value={selectedTerm} onValueChange={setSelectedTerm}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="First Term">{t("firstTerm")}</SelectItem>
-                  <SelectItem value="Second Term">{t("secondTerm")}</SelectItem>
-                  <SelectItem value="Third Term">{t("thirdTerm")}</SelectItem>
-                  <SelectItem value="Annual">Annual</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-end">
-              <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-                <Button onClick={() => setPreviewOpen(true)} className="w-full">
-                  <Eye className="mr-2 h-4 w-4" />
-                  Preview & Generate
-                </Button>
-                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-                  <DialogHeader>
-                    <DialogTitle>{t("reportPreview")}</DialogTitle>
-                    <DialogDescription>{t("reportPreviewDescription")}</DialogDescription>
-                  </DialogHeader>
-                  <StudentReportPreview student={selectedChild} reportType={reportType} term={selectedTerm} />
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setPreviewOpen(false)}>
-                      {t("cancel")}
-                    </Button>
-                    <Button onClick={handleGenerateReport} disabled={isGenerating}>
-                      {isGenerating ? t("generating") : t("saveReport")}
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Generated Reports */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            {t("generatedReports")}
-          </CardTitle>
-          <CardDescription>
-            {childReports.length} {t("reportsFor")} {selectedChild.name}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {childReports.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>{t("noReportsYet")}</p>
-              <p className="text-sm">{t("generateFirstReport")}</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Report Type</TableHead>
-                  <TableHead>Term</TableHead>
-                  <TableHead>Generated</TableHead>
-                  <TableHead className="text-right">{t("actions")}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {childReports.map((report) => (
-                  <TableRow key={report.id}>
-                    <TableCell>
-                      <Badge variant="outline">{report.type}</Badge>
-                    </TableCell>
-                    <TableCell>{report.term}</TableCell>
-                    <TableCell>{new Date(report.generatedAt).toLocaleDateString()}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            setViewingReport(report)
-                            setViewParentDialogOpen(true)
-                          }}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDownloadPDF(report)}>
-                          <Download className="h-4 w-4" />
-                        </Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>{t("deleteReport")}</AlertDialogTitle>
-                              <AlertDialogDescription>{t("deleteReportConfirmation")}</AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => handleDeleteReport(report.id)}
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                              >
-                                {t("delete")}
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* View Parent Report Dialog */}
+      {/* View Parent Report Dialog - Same format as admin */}
       <Dialog open={viewParentDialogOpen} onOpenChange={setViewParentDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{viewingReport?.type}</DialogTitle>
+            <DialogTitle>{viewingReport?.title || "Report Details"}</DialogTitle>
             <DialogDescription>
-              {viewingReport?.childName} - {viewingReport?.term}
+              {viewingReport?.type === "student" && "Student Report"}
             </DialogDescription>
           </DialogHeader>
-          {viewingReport && (
-            <StudentReportPreview
-              student={childrenData.find((c) => c.id === viewingReport.childId) || selectedChild}
-              reportType={viewingReport.type}
-              term={viewingReport.term}
-            />
+
+          {viewingReport?.data && (
+            <div className="space-y-6 mt-4">
+              {/* Student Report */}
+              {viewingReport.type === "student" && viewingReport.data.student && (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Student Information</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        <div>
+                          <span className="text-sm text-muted-foreground">Name:</span>
+                          <p className="font-medium">{viewingReport.data.student.name}</p>
+                        </div>
+                        <div>
+                          <span className="text-sm text-muted-foreground">Class:</span>
+                          <p className="font-medium">{viewingReport.data.student.className}</p>
+                        </div>
+                        {viewingReport.data.student.admissionNumber && (
+                          <div>
+                            <span className="text-sm text-muted-foreground">Admission No:</span>
+                            <p className="font-medium">{viewingReport.data.student.admissionNumber}</p>
+                          </div>
+                        )}
+                        {viewingReport.data.term && (
+                          <div>
+                            <span className="text-sm text-muted-foreground">Term:</span>
+                            <p className="font-medium">{viewingReport.data.term}</p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Overall Performance</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <p className="text-sm text-muted-foreground">Average</p>
+                            <p className="text-2xl font-bold">{viewingReport.data.marks?.averagePercent || 0}%</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Grade</p>
+                            <p className="text-2xl font-bold">{viewingReport.data.marks?.overallGrade || "-"}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Attendance</p>
+                            <p className="text-2xl font-bold">{viewingReport.data.attendance?.attendanceRate || 0}%</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Subjects</p>
+                            <p className="text-2xl font-bold">{viewingReport.data.marks?.subjects?.length || 0}</p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Attendance Summary</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-4 gap-4">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Total Days</p>
+                          <p className="text-xl font-semibold">{viewingReport.data.attendance?.totalDays || 0}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Present</p>
+                          <p className="text-xl font-semibold text-green-600">{viewingReport.data.attendance?.presentDays || 0}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Absent</p>
+                          <p className="text-xl font-semibold text-red-600">{viewingReport.data.attendance?.absentDays || 0}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Late</p>
+                          <p className="text-xl font-semibold text-yellow-600">{viewingReport.data.attendance?.lateDays || 0}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {viewingReport.data.marks?.subjects && viewingReport.data.marks.subjects.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Subject Marks</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Subject</TableHead>
+                              <TableHead>Exam</TableHead>
+                              <TableHead className="text-right">Marks</TableHead>
+                              <TableHead className="text-right">Total</TableHead>
+                              <TableHead className="text-right">Percentage</TableHead>
+                              <TableHead className="text-center">Grade</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {viewingReport.data.marks.subjects.map((subject: any, idx: number) => (
+                              <TableRow key={idx}>
+                                <TableCell className="font-medium">{subject.subjectName}</TableCell>
+                                <TableCell>{subject.examName || "-"}</TableCell>
+                                <TableCell className="text-right">{subject.marks ?? 0}</TableCell>
+                                <TableCell className="text-right">{subject.totalMarks ?? 0}</TableCell>
+                                <TableCell className="text-right">{subject.percentage ?? 0}%</TableCell>
+                                <TableCell className="text-center">
+                                  <Badge variant="secondary">{subject.grade || "-"}</Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
+              )}
+            </div>
           )}
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setViewParentDialogOpen(false)}>
               Close
             </Button>
-            {viewingReport && (
-              <Button onClick={() => handleDownloadPDF(viewingReport)}>
+            {viewingReport?.id && (
+              <Button onClick={() => { setViewParentDialogOpen(false); handleDownloadPDF(viewingReport.id) }}>
                 <Download className="mr-2 h-4 w-4" />
-                {t("downloadPDF")}
+                Download PDF
               </Button>
             )}
           </DialogFooter>

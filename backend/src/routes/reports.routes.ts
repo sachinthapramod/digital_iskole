@@ -18,8 +18,8 @@ router.get('/:id/download', reportsController.download.bind(reportsController));
 
 router.delete('/:id', reportsController.remove.bind(reportsController));
 
-// Generate student report (admin UI)
-router.post('/student', requireAdmin, reportRateLimiter, reportsController.generateStudent.bind(reportsController));
+// Generate student report (admin, teacher, parent - with authorization checks in controller)
+router.post('/student', reportRateLimiter, reportsController.generateStudent.bind(reportsController));
 
 router.post('/class', requireAdmin, reportRateLimiter, reportsController.generateClass.bind(reportsController));
 

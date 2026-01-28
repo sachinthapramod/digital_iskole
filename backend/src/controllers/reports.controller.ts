@@ -124,15 +124,37 @@ export class ReportsController {
         return;
       }
 
-      // For now, only admin can generate via this endpoint (admin reports screen)
-      if (req.user.role !== 'admin') {
-        sendError(res, 'AUTH_UNAUTHORIZED', 'Only admins can generate reports here', 403);
-        return;
-      }
-
       const { studentId, term, reportType } = req.body;
       if (!studentId) {
         sendError(res, 'VALIDATION_ERROR', 'studentId is required', 400);
+        return;
+      }
+
+      // Authorization: Admin can generate for any student, parents/teachers only for their own
+      if (req.user.role === 'parent') {
+        // Verify the student belongs to this parent
+        const { db } = await import('../config/firebase');
+        const studentDoc = await db.collection('students').doc(studentId).get();
+        if (!studentDoc.exists) {
+          sendError(res, 'NOT_FOUND', 'Student not found', 404);
+          return;
+        }
+        const studentData = studentDoc.data() as any;
+        const parentDoc = await db.collection('parents').where('userId', '==', req.user.uid).limit(1).get();
+        if (parentDoc.empty) {
+          sendError(res, 'AUTH_UNAUTHORIZED', 'Parent profile not found', 403);
+          return;
+        }
+        const parentData = parentDoc.docs[0].data();
+        const parentId = parentDoc.docs[0].id;
+        
+        // Check if student's parentId matches or if student is in parent's children array
+        if (studentData.parentId !== parentId && !parentData.children?.includes(studentId)) {
+          sendError(res, 'AUTH_UNAUTHORIZED', 'You can only generate reports for your own children', 403);
+          return;
+        }
+      } else if (req.user.role !== 'admin' && req.user.role !== 'teacher') {
+        sendError(res, 'AUTH_UNAUTHORIZED', 'Only admins, teachers, and parents can generate reports', 403);
         return;
       }
 

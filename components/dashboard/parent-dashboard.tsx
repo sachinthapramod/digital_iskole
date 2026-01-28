@@ -128,13 +128,23 @@ export function ParentDashboard() {
       setError(null)
 
       try {
-        const [childrenRes, noticesRes, appointmentsRes] = await Promise.all([
+        const [childrenRes, noticesRes, appointmentsRes] = await Promise.allSettled([
           apiGetJson("/users/parents/me/children"),
           apiGetJson("/notices?target=parents"),
           apiGetJson("/appointments"),
         ])
 
-        const childrenApi = (childrenRes?.data?.children || []) as ParentChildApi[]
+        // Handle each response, allowing partial failures
+        const childrenResData = childrenRes.status === "fulfilled" ? childrenRes.value : null
+        const noticesResData = noticesRes.status === "fulfilled" ? noticesRes.value : null
+        const appointmentsResData = appointmentsRes.status === "fulfilled" ? appointmentsRes.value : null
+
+        // If children fetch failed, we can't continue
+        if (!childrenResData || childrenRes.status === "rejected") {
+          throw new Error(childrenRes.status === "rejected" ? childrenRes.reason?.message || "Failed to load children" : "No children data")
+        }
+
+        const childrenApi = (childrenResData?.data?.children || []) as ParentChildApi[]
 
         // Build children cards (attendance + marks summary per child)
         const childCards = await Promise.all(
@@ -197,7 +207,7 @@ export function ParentDashboard() {
         marksAcrossChildren.sort((a, b) => new Date(b._sortDate).getTime() - new Date(a._sortDate).getTime())
         const recentMarksVm = marksAcrossChildren.slice(0, 4)
 
-        const noticesApi = (noticesRes?.data?.notices || []) as NoticeApi[]
+        const noticesApi = noticesResData ? ((noticesResData?.data?.notices || []) as NoticeApi[]) : []
         const noticesVm = noticesApi.slice(0, 3).map((n) => ({
           id: n.id,
           title: n.title,
@@ -205,7 +215,7 @@ export function ParentDashboard() {
           type: badgeLabelForNoticePriority(n.priority),
         }))
 
-        const appointmentsApi = (appointmentsRes?.data?.appointments || []) as AppointmentApi[]
+        const appointmentsApi = appointmentsResData ? ((appointmentsResData?.data?.appointments || []) as AppointmentApi[]) : []
         const appointmentsVm = appointmentsApi.slice(0, 4).map((a) => ({
           id: a.id,
           child: a.studentName,
@@ -225,7 +235,13 @@ export function ParentDashboard() {
         }
       } catch (e: any) {
         if (!cancelled) {
-          setError(e?.message || "Failed to load parent dashboard.")
+          const errorMessage = e?.message || "Failed to load parent dashboard."
+          console.error("Parent dashboard load error:", {
+            message: errorMessage,
+            error: e,
+            stack: e?.stack,
+          })
+          setError(errorMessage)
           setChildren([])
           setRecentMarks([])
           setNotices([])

@@ -1033,7 +1033,7 @@ export default function AttendancePage() {
                               }
                               className={status === "present" ? "bg-success hover:bg-success/80" : status === "late" ? "bg-warning hover:bg-warning/80 text-warning-foreground" : ""}
                             >
-                              {t(status)}
+                              {status === "holiday" ? "Holiday" : t(status as "present" | "absent" | "late")}
                             </Badge>
                           </div>
                         </td>
