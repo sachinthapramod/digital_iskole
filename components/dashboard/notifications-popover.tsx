@@ -1,117 +1,107 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useLanguage } from "@/lib/i18n/context"
 import { useAuth } from "@/lib/auth/context"
 import { useRouter } from "next/navigation"
-import { Bell, Check, Calendar, FileText, ClipboardCheck, MessageSquare } from "lucide-react"
+import { apiRequest } from "@/lib/api/client"
+import { Bell, Check, Calendar, FileText, ClipboardCheck, MessageSquare, Loader2 } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 
 interface Notification {
   id: string
-  type: "appointment" | "notice" | "marks" | "attendance" | "system"
+  type: "appointment" | "notice" | "marks" | "attendance" | "system" | "exams"
   title: string
   message: string
   timestamp: Date
   read: boolean
-}
-
-// Mock notifications based on user role
-const getNotificationsForRole = (role: string): Notification[] => {
-  const baseNotifications: Notification[] = [
-    {
-      id: "1",
-      type: "notice",
-      title: "School Sports Day 2024",
-      message: "Annual Sports Day will be held on December 20th",
-      timestamp: new Date(Date.now() - 1000 * 60 * 30),
-      read: false,
-    },
-  ]
-
-  if (role === "admin") {
-    return [
-      ...baseNotifications,
-      {
-        id: "2",
-        type: "appointment",
-        title: "New Appointment Request",
-        message: "Mrs. Silva requested a meeting with Mr. Fernando",
-        timestamp: new Date(Date.now() - 1000 * 60 * 60),
-        read: false,
-      },
-      {
-        id: "3",
-        type: "attendance",
-        title: "Low Attendance Alert",
-        message: "Grade 9-B has 15% absent students today",
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2),
-        read: true,
-      },
-    ]
-  }
-
-  if (role === "teacher") {
-    return [
-      ...baseNotifications,
-      {
-        id: "2",
-        type: "appointment",
-        title: "Appointment Reminder",
-        message: "Meeting with Mrs. Silva tomorrow at 2:00 PM",
-        timestamp: new Date(Date.now() - 1000 * 60 * 45),
-        read: false,
-      },
-      {
-        id: "3",
-        type: "marks",
-        title: "Marks Entry Pending",
-        message: "Mid-term marks for Grade 10-A need to be submitted",
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 3),
-        read: false,
-      },
-    ]
-  }
-
-  return [
-    ...baseNotifications,
-    {
-      id: "2",
-      type: "marks",
-      title: "New Marks Available",
-      message: "Mid-term examination results have been published",
-      timestamp: new Date(Date.now() - 1000 * 60 * 60),
-      read: false,
-    },
-    {
-      id: "3",
-      type: "appointment",
-      title: "Appointment Confirmed",
-      message: "Your meeting with Mrs. Fernando is confirmed for Dec 15",
-      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 4),
-      read: true,
-    },
-  ]
+  link?: string
 }
 
 export function NotificationsPopover() {
   const { t } = useLanguage()
   const { user } = useAuth()
   const router = useRouter()
-  const [notifications, setNotifications] = useState<Notification[]>(getNotificationsForRole(user?.role || "parent"))
+  const [notifications, setNotifications] = useState<Notification[]>([])
   const [open, setOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
 
   const unreadCount = notifications.filter((n) => !n.read).length
 
-  const markAsRead = (id: string) => {
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
+  const fetchNotifications = async () => {
+    if (!user) return
+    try {
+      setIsLoading(true)
+      const response = await apiRequest('/notifications')
+      const data = await response.json()
+
+      if (response.ok && data.data?.notifications) {
+        const notificationsList = (data.data.notifications || []).map((notif: any) => ({
+          id: notif.id,
+          type: notif.type,
+          title: notif.title,
+          message: notif.message,
+          timestamp: new Date(notif.timestamp || notif.createdAt),
+          read: notif.read || notif.isRead || false,
+          link: notif.link,
+        }))
+        setNotifications(notificationsList)
+      }
+    } catch (err: any) {
+      console.error('Fetch notifications error:', err)
+      // Don't show error in popover, just log it
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const markAllAsRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+  useEffect(() => {
+    if (user) {
+      fetchNotifications()
+      // Refresh notifications every 30 seconds
+      const interval = setInterval(fetchNotifications, 30000)
+      return () => clearInterval(interval)
+    }
+  }, [user])
+
+  // Fetch when popover opens
+  useEffect(() => {
+    if (open && user) {
+      fetchNotifications()
+    }
+  }, [open, user])
+
+  const markAsRead = async (id: string) => {
+    try {
+      const response = await apiRequest(`/notifications/${id}/read`, {
+        method: 'PATCH',
+      })
+      if (response.ok) {
+        setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
+      }
+    } catch (err: any) {
+      console.error('Mark as read error:', err)
+      // Still update UI optimistically
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
+    }
+  }
+
+  const markAllAsRead = async () => {
+    try {
+      const response = await apiRequest('/notifications/read-all', {
+        method: 'PATCH',
+      })
+      if (response.ok) {
+        setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+      }
+    } catch (err: any) {
+      console.error('Mark all as read error:', err)
+      // Still update UI optimistically
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+    }
   }
 
   const getNotificationIcon = (type: Notification["type"]) => {
@@ -124,6 +114,8 @@ export function NotificationsPopover() {
         return <FileText className="h-4 w-4" />
       case "attendance":
         return <ClipboardCheck className="h-4 w-4" />
+      case "exams":
+        return <FileText className="h-4 w-4" />
       case "system":
         return <MessageSquare className="h-4 w-4" />
       default:
@@ -141,6 +133,8 @@ export function NotificationsPopover() {
         return "bg-purple-500/10 text-purple-600 dark:text-purple-400"
       case "attendance":
         return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+      case "exams":
+        return "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
       case "system":
         return "bg-orange-500/10 text-orange-600 dark:text-orange-400"
       default:
@@ -182,7 +176,12 @@ export function NotificationsPopover() {
           )}
         </div>
         <ScrollArea className="h-[300px]">
-          {notifications.length === 0 ? (
+          {isLoading ? (
+            <div className="py-8 text-center">
+              <Loader2 className="h-6 w-6 text-muted-foreground/50 mx-auto mb-2 animate-spin" />
+              <p className="text-sm text-muted-foreground">Loading notifications...</p>
+            </div>
+          ) : notifications.length === 0 ? (
             <div className="py-8 text-center">
               <Bell className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />
               <p className="text-sm text-muted-foreground">{t("noNotifications")}</p>
@@ -195,7 +194,13 @@ export function NotificationsPopover() {
                   className={`w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors ${
                     !notification.read ? "bg-primary/5" : ""
                   }`}
-                  onClick={() => markAsRead(notification.id)}
+                  onClick={() => {
+                    markAsRead(notification.id)
+                    if (notification.link) {
+                      setOpen(false)
+                      router.push(notification.link)
+                    }
+                  }}
                 >
                   <div className="flex gap-3">
                     <div
