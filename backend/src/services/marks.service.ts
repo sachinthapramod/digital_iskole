@@ -20,7 +20,7 @@ function calculateGrade(marks: number, totalMarks: number): string {
 }
 
 export class MarksService {
-  async getMarksByExam(examId: string, className?: string, subjectId?: string): Promise<any[]> {
+  async getMarksByExam(examId: string, className?: string, subjectId?: string, limit?: number): Promise<any[]> {
     try {
       let query = db.collection('marks').where('examId', '==', examId);
       
@@ -31,6 +31,10 @@ export class MarksService {
       if (subjectId) {
         query = query.where('subjectId', '==', subjectId) as any;
       }
+      
+      // OPTIMIZED: Add limit to prevent fetching unlimited marks (default 500)
+      const queryLimit = limit || 500;
+      query = query.limit(queryLimit) as any;
       
       const marksSnapshot = await query.get();
       const marks: any[] = [];
@@ -148,13 +152,39 @@ export class MarksService {
         const percentage = (markEntry.marks / data.totalMarks) * 100;
         const grade = calculateGrade(markEntry.marks, data.totalMarks);
 
-        // Check if mark already exists
-        const existingMarksSnapshot = await db.collection('marks')
-          .where('examId', '==', data.examId)
-          .where('studentId', '==', markEntry.studentId)
-          .where('subjectId', '==', data.subjectId)
-          .limit(1)
-          .get();
+        // Check if mark already exists (with fallback for missing index)
+        let existingMarksSnapshot;
+        try {
+          existingMarksSnapshot = await db.collection('marks')
+            .where('examId', '==', data.examId)
+            .where('studentId', '==', markEntry.studentId)
+            .where('subjectId', '==', data.subjectId)
+            .limit(1)
+            .get();
+        } catch (indexError: any) {
+          // If index doesn't exist, fallback to query by examId and studentId, filter by subjectId in memory
+          if (indexError.code === 9 || indexError.message?.includes('index')) {
+            const partialSnapshot = await db.collection('marks')
+              .where('examId', '==', data.examId)
+              .where('studentId', '==', markEntry.studentId)
+              .limit(50) // Reasonable limit
+              .get();
+            
+            // Filter by subjectId in memory
+            const filteredDocs = partialSnapshot.docs.filter(doc => {
+              const markData = doc.data() as Mark;
+              return markData.subjectId === data.subjectId;
+            });
+            
+            existingMarksSnapshot = {
+              docs: filteredDocs.slice(0, 1), // Take first match
+              empty: filteredDocs.length === 0,
+              size: filteredDocs.length > 0 ? 1 : 0,
+            } as any;
+          } else {
+            throw indexError;
+          }
+        }
 
         const markData: Omit<Mark, 'id'> = {
           studentId: markEntry.studentId,
@@ -308,19 +338,49 @@ export class MarksService {
     }
   }
 
-  async getStudentMarks(studentId: string, examId?: string, subjectId?: string): Promise<any[]> {
+  async getStudentMarks(studentId: string, examId?: string, subjectId?: string, limit?: number): Promise<any[]> {
     try {
-      let query = db.collection('marks').where('studentId', '==', studentId);
+      // OPTIMIZED: Use Firestore ordering if index exists, otherwise fallback to in-memory sort
+      let marksSnapshot;
+      let usedFallback = false;
+      const queryLimit = limit || 500;
       
-      if (examId) {
-        query = query.where('examId', '==', examId) as any;
+      try {
+        // Try with orderBy first (requires index)
+        let query = db.collection('marks').where('studentId', '==', studentId);
+        
+        if (examId) {
+          query = query.where('examId', '==', examId) as any;
+        }
+        
+        if (subjectId) {
+          query = query.where('subjectId', '==', subjectId) as any;
+        }
+        
+        query = query.orderBy('updatedAt', 'desc').limit(queryLimit) as any;
+        marksSnapshot = await query.get();
+      } catch (indexError: any) {
+        // If index doesn't exist, fallback to query without orderBy
+        if (indexError.code === 9 || indexError.message?.includes('index')) {
+          logger.warn('Firestore index not found for marks. Using fallback query. Please create index: marks(studentId, updatedAt DESC)');
+          let query = db.collection('marks').where('studentId', '==', studentId);
+          
+          if (examId) {
+            query = query.where('examId', '==', examId) as any;
+          }
+          
+          if (subjectId) {
+            query = query.where('subjectId', '==', subjectId) as any;
+          }
+          
+          query = query.limit(queryLimit) as any;
+          marksSnapshot = await query.get();
+          usedFallback = true;
+        } else {
+          throw indexError;
+        }
       }
       
-      if (subjectId) {
-        query = query.where('subjectId', '==', subjectId) as any;
-      }
-      
-      const marksSnapshot = await query.get();
       const marks: any[] = [];
       
       for (const doc of marksSnapshot.docs) {
@@ -349,6 +409,15 @@ export class MarksService {
           enteredByName: markData.enteredByName,
           createdAt: createdAt ? createdAt.toDate().toISOString() : '',
           updatedAt: updatedAt ? updatedAt.toDate().toISOString() : '',
+        });
+      }
+      
+      // Sort in memory if we used fallback query (no orderBy)
+      if (usedFallback) {
+        marks.sort((a, b) => {
+          const dateA = new Date(a.updatedAt || a.createdAt).getTime();
+          const dateB = new Date(b.updatedAt || b.createdAt).getTime();
+          return dateB - dateA; // Descending order (most recent first)
         });
       }
       

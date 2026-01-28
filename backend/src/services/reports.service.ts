@@ -36,7 +36,27 @@ function calculateGradeFromPercent(percent: number): string {
 export class ReportsService {
   async listReportsForAdmin(limit: number = 50): Promise<ReportRecord[]> {
     try {
-      const snapshot = await db.collection('reports').get();
+      // OPTIMIZED: Use Firestore ordering and limit if index exists, otherwise fallback
+      let snapshot;
+      let usedFallback = false;
+      try {
+        snapshot = await db.collection('reports')
+          .orderBy('createdAt', 'desc')
+          .limit(limit)
+          .get();
+      } catch (indexError: any) {
+        // If index doesn't exist, fallback to query without orderBy
+        if (indexError.code === 9 || indexError.message?.includes('index')) {
+          logger.warn('Firestore index not found for reports. Using fallback query. Please create index: reports(createdAt DESC)');
+          snapshot = await db.collection('reports')
+            .limit(limit)
+            .get();
+          usedFallback = true;
+        } else {
+          throw indexError;
+        }
+      }
+      
       const reports: ReportRecord[] = snapshot.docs.map((doc) => {
         const d = doc.data() as any;
         const createdAt = d.createdAt as Timestamp;
@@ -56,8 +76,12 @@ export class ReportsService {
         };
       });
 
-      reports.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      return reports.slice(0, limit);
+      // Sort in memory if we used fallback query (no orderBy)
+      if (usedFallback) {
+        reports.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      }
+
+      return reports;
     } catch (error: any) {
       logger.error('List reports (admin) error:', error);
       throw new ApiErrorResponse('FETCH_FAILED', 'Failed to fetch reports', 500);
@@ -66,7 +90,29 @@ export class ReportsService {
 
   async listReportsForUser(userId: string, limit: number = 50): Promise<ReportRecord[]> {
     try {
-      const snapshot = await db.collection('reports').where('createdBy', '==', userId).get();
+      // OPTIMIZED: Use Firestore ordering and limit if index exists, otherwise fallback
+      let snapshot;
+      let usedFallback = false;
+      try {
+        snapshot = await db.collection('reports')
+          .where('createdBy', '==', userId)
+          .orderBy('createdAt', 'desc')
+          .limit(limit)
+          .get();
+      } catch (indexError: any) {
+        // If index doesn't exist, fallback to query without orderBy
+        if (indexError.code === 9 || indexError.message?.includes('index')) {
+          logger.warn('Firestore index not found for reports. Using fallback query. Please create index: reports(createdBy, createdAt DESC)');
+          snapshot = await db.collection('reports')
+            .where('createdBy', '==', userId)
+            .limit(limit)
+            .get();
+          usedFallback = true;
+        } else {
+          throw indexError;
+        }
+      }
+      
       const reports: ReportRecord[] = snapshot.docs.map((doc) => {
         const d = doc.data() as any;
         const createdAt = d.createdAt as Timestamp;
@@ -86,8 +132,12 @@ export class ReportsService {
         };
       });
 
-      reports.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      return reports.slice(0, limit);
+      // Sort in memory if we used fallback query (no orderBy)
+      if (usedFallback) {
+        reports.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      }
+
+      return reports;
     } catch (error: any) {
       logger.error('List reports (user) error:', error);
       throw new ApiErrorResponse('FETCH_FAILED', 'Failed to fetch reports', 500);

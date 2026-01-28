@@ -77,59 +77,54 @@ export default function TeacherStudentsPage() {
 
       const studentsList = studentsData.data?.students || []
 
-      // Fetch attendance stats and parent info for each student
-      const studentsWithStats = await Promise.all(
-        studentsList.map(async (student: any) => {
-          try {
-            // Fetch attendance stats
-            const statsResponse = await apiRequest(`/attendance/student/${student.id}/stats`)
-            const statsData = await statsResponse.json()
-            const stats = statsResponse.ok ? statsData.data?.stats : null
-
-            // Fetch full student details to get parent info
-            const studentDetailsResponse = await apiRequest(`/users/students/${student.id}`)
-            const studentDetailsData = await studentDetailsResponse.json()
-            const studentDetails = studentDetailsResponse.ok ? studentDetailsData.data?.student : null
-
-            // Calculate trend based on attendance
-            let trend: "up" | "down" | "stable" = "stable"
-            if (stats) {
-              // Simple trend calculation - can be improved with historical data
-              if (stats.attendanceRate >= 90) trend = "up"
-              else if (stats.attendanceRate < 75) trend = "down"
-            }
-
-            return {
-              id: student.id,
-              name: student.name,
-              rollNo: student.rollNo || student.admissionNumber || "N/A",
-              class: user.assignedClass,
-              parent: studentDetails?.parent || studentDetails?.parentName || "N/A",
-              parentPhone: studentDetails?.parentPhone || "N/A",
-              parentEmail: studentDetails?.parentEmail || "N/A",
-              attendance: stats?.attendanceRate || 0,
-              avgMarks: 0, // TODO: Fetch from marks API when available
-              status: studentDetails?.status || "active",
-              trend,
-            }
-          } catch (err) {
-            console.error(`Error fetching stats for student ${student.id}:`, err)
-            return {
-              id: student.id,
-              name: student.name,
-              rollNo: student.rollNo || student.admissionNumber || "N/A",
-              class: user.assignedClass,
-              parent: "N/A",
-              parentPhone: "N/A",
-              parentEmail: "N/A",
-              attendance: 0,
-              avgMarks: 0,
-              status: "active",
-              trend: "stable" as const,
-            }
-          }
-        })
+      // OPTIMIZED: Batch fetch all stats and details in parallel
+      // Instead of 2 sequential calls per student (60 calls for 30 students), we batch them
+      const statsPromises = studentsList.map((student: any) => 
+        apiRequest(`/attendance/student/${student.id}/stats`)
+          .then(res => res.json().then(data => ({ ok: res.ok, data })))
+          .catch(() => ({ ok: false, data: null }))
       )
+      const detailsPromises = studentsList.map((student: any) => 
+        apiRequest(`/users/students/${student.id}`)
+          .then(res => res.json().then(data => ({ ok: res.ok, data })))
+          .catch(() => ({ ok: false, data: null }))
+      )
+
+      // Fetch all in parallel
+      const [statsResults, detailsResults] = await Promise.all([
+        Promise.all(statsPromises),
+        Promise.all(detailsPromises),
+      ])
+
+      // Process results
+      const studentsWithStats = studentsList.map((student: any, index: number) => {
+        const statsResult = statsResults[index]
+        const detailsResult = detailsResults[index]
+
+        const stats = statsResult.ok ? statsResult.data?.data?.stats : null
+        const studentDetails = detailsResult.ok ? detailsResult.data?.data?.student : null
+
+        // Calculate trend based on attendance
+        let trend: "up" | "down" | "stable" = "stable"
+        if (stats) {
+          if (stats.attendanceRate >= 90) trend = "up"
+          else if (stats.attendanceRate < 75) trend = "down"
+        }
+
+        return {
+          id: student.id,
+          name: student.name,
+          rollNo: student.rollNo || student.admissionNumber || "N/A",
+          class: user.assignedClass,
+          parent: studentDetails?.parent || studentDetails?.parentName || "N/A",
+          parentPhone: studentDetails?.parentPhone || "N/A",
+          parentEmail: studentDetails?.parentEmail || "N/A",
+          attendance: stats?.attendanceRate || 0,
+          avgMarks: 0, // TODO: Fetch from marks API when available
+          status: studentDetails?.status || "active",
+          trend,
+        }
+      })
 
       setStudents(studentsWithStats)
     } catch (err: any) {

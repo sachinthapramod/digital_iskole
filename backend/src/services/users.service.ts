@@ -10,12 +10,26 @@ export class UsersService {
   async getTeachers(): Promise<any[]> {
     try {
       const teachersSnapshot = await db.collection('teachers').get();
-      const teachers: any[] = [];
       
+      // OPTIMIZED: Batch fetch all user documents in parallel
+      const teacherUserIds = teachersSnapshot.docs.map(doc => doc.data().userId);
+      const userDocPromises = teacherUserIds.map(userId => 
+        db.collection('users').doc(userId).get()
+      );
+      const userDocs = await Promise.all(userDocPromises);
+      
+      // Create map for O(1) lookup
+      const userMap = new Map<string, User>();
+      userDocs.forEach((doc, index) => {
+        if (doc.exists) {
+          userMap.set(teacherUserIds[index], doc.data() as User);
+        }
+      });
+      
+      const teachers: any[] = [];
       for (const doc of teachersSnapshot.docs) {
         const teacherData = doc.data() as Teacher;
-        const userDoc = await db.collection('users').doc(teacherData.userId).get();
-        const userData = userDoc.data() as User;
+        const userData = userMap.get(teacherData.userId);
         
         if (userData) {
           teachers.push({
@@ -291,20 +305,61 @@ export class UsersService {
   async getParents(): Promise<any[]> {
     try {
       const parentsSnapshot = await db.collection('parents').get();
-      const parents: any[] = [];
       
+      // OPTIMIZED: Batch fetch all user documents in parallel
+      const parentUserIds = parentsSnapshot.docs.map(doc => doc.data().userId);
+      const userDocPromises = parentUserIds.map(userId => 
+        db.collection('users').doc(userId).get()
+      );
+      const userDocs = await Promise.all(userDocPromises);
+      
+      // Create map for O(1) lookup
+      const userMap = new Map<string, User>();
+      userDocs.forEach((doc, index) => {
+        if (doc.exists) {
+          userMap.set(parentUserIds[index], doc.data() as User);
+        }
+      });
+      
+      // Collect all child IDs for batch fetch
+      const allChildIds: string[] = [];
+      const parentChildMap = new Map<string, string[]>(); // parentId -> childIds
+      parentsSnapshot.docs.forEach(doc => {
+        const parentData = doc.data() as Parent;
+        const childIds = parentData.children || [];
+        if (childIds.length > 0) {
+          parentChildMap.set(doc.id, childIds);
+          allChildIds.push(...childIds);
+        }
+      });
+      
+      // Batch fetch all child documents
+      const uniqueChildIds = [...new Set(allChildIds)];
+      const childDocPromises = uniqueChildIds.map(childId => 
+        db.collection('students').doc(childId).get()
+      );
+      const childDocs = await Promise.all(childDocPromises);
+      
+      // Create map for O(1) lookup
+      const childMap = new Map<string, Student>();
+      childDocs.forEach((doc, index) => {
+        if (doc.exists) {
+          childMap.set(uniqueChildIds[index], doc.data() as Student);
+        }
+      });
+      
+      const parents: any[] = [];
       for (const doc of parentsSnapshot.docs) {
         const parentData = doc.data() as Parent;
-        const userDoc = await db.collection('users').doc(parentData.userId).get();
-        const userData = userDoc.data() as User;
+        const userData = userMap.get(parentData.userId);
         
         if (userData) {
-          // Get children names
+          // Get children names from cached map
           const childrenNames: string[] = [];
-          for (const childId of parentData.children || []) {
-            const childDoc = await db.collection('students').doc(childId).get();
-            if (childDoc.exists) {
-              const childData = childDoc.data() as Student;
+          const childIds = parentChildMap.get(doc.id) || [];
+          for (const childId of childIds) {
+            const childData = childMap.get(childId);
+            if (childData) {
               childrenNames.push(`${childData.fullName} (${childData.className})`);
             }
           }
@@ -548,9 +603,16 @@ export class UsersService {
 
   // ========== STUDENTS ==========
 
-  async getStudents(): Promise<any[]> {
+  async getStudents(limit?: number): Promise<any[]> {
     try {
-      const studentsSnapshot = await db.collection('students').get();
+      // OPTIMIZED: Add limit to prevent fetching all students
+      let query: any = db.collection('students');
+      
+      // Default limit of 1000 if not specified (reasonable for most schools)
+      const queryLimit = limit || 1000;
+      query = query.limit(queryLimit);
+      
+      const studentsSnapshot = await query.get();
       const students: any[] = [];
       
       for (const doc of studentsSnapshot.docs) {

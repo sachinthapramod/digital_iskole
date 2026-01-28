@@ -563,24 +563,28 @@ export default function MarksPage() {
       setIsLoadingViewMarks(true)
       setError(null)
 
-      // Fetch students for the class to get roll numbers
-      const studentsResponse = await apiRequest(`/marks/students?className=${encodeURIComponent(viewClass)}`)
-      const studentsData = await studentsResponse.json()
+      // OPTIMIZED: Fetch students and marks in parallel instead of sequentially
+      const [studentsResponse, marksResponse] = await Promise.all([
+        apiRequest(`/marks/students?className=${encodeURIComponent(viewClass)}`),
+        apiRequest(`/marks/exam/${viewExam}?className=${encodeURIComponent(viewClass)}&subjectId=${viewSubject}`),
+      ])
+
+      const [studentsData, marksData] = await Promise.all([
+        studentsResponse.json(),
+        marksResponse.json(),
+      ])
+
       if (studentsResponse.ok) {
         setStudents(studentsData.data?.students || [])
       }
 
-      // Fetch marks
-      const response = await apiRequest(`/marks/exam/${viewExam}?className=${encodeURIComponent(viewClass)}&subjectId=${viewSubject}`)
-      const data = await response.json()
-
-      if (response.ok) {
-        const marksList = data.data?.marks || []
+      if (marksResponse.ok) {
+        const marksList = marksData.data?.marks || []
         // Sort by student name
         marksList.sort((a: any, b: any) => a.studentName.localeCompare(b.studentName))
         setViewMarks(marksList)
       } else {
-        setError(data.message || 'Failed to fetch marks')
+        setError(marksData.message || 'Failed to fetch marks')
         setViewMarks([])
       }
     } catch (err: any) {

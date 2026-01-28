@@ -110,9 +110,20 @@ export default function AttendancePage() {
     }
   }, [selectedClass, selectedDate])
 
+  // OPTIMIZED: Use ref to track if students loaded instead of depending on students.length
+  const studentsLoadedRef = useRef(false)
+
+  useEffect(() => {
+    if (selectedClass && selectedDate && students.length > 0) {
+      studentsLoadedRef.current = true
+    } else {
+      studentsLoadedRef.current = false
+    }
+  }, [selectedClass, selectedDate, students.length])
+
   // Fetch attendance when date or class changes (after students are loaded)
   useEffect(() => {
-    if (selectedClass && selectedDate && students.length > 0 && viewMode === "mark") {
+    if (selectedClass && selectedDate && studentsLoadedRef.current && viewMode === "mark") {
       // Only skip if flag is set (from history edit)
       if (skipFetchAttendanceRef.current) {
         skipFetchAttendanceRef.current = false
@@ -121,7 +132,7 @@ export default function AttendancePage() {
       console.log('useEffect triggered - fetching attendance', { selectedClass, selectedDate, studentsCount: students.length })
       fetchAttendance()
     }
-  }, [selectedClass, selectedDate, students.length, viewMode])
+  }, [selectedClass, selectedDate, viewMode]) // Removed students.length to prevent refetch loops
 
   const fetchClasses = async () => {
     try {

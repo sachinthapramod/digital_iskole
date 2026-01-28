@@ -46,26 +46,49 @@ export class AttendanceService {
       dateObj.setHours(23, 59, 59, 999);
       const endOfDay = Timestamp.fromDate(dateObj);
       
-      // Query by className only (avoids composite index requirement), then filter by date in memory
-      const attendanceSnapshot = await db.collection('attendance')
-        .where('className', '==', className)
-        .get();
+      // OPTIMIZED: Use Firestore date range query if index exists, otherwise fallback
+      let attendanceSnapshot;
+      try {
+        attendanceSnapshot = await db.collection('attendance')
+          .where('className', '==', className)
+          .where('date', '>=', startOfDay)
+          .where('date', '<=', endOfDay)
+          .get();
+      } catch (indexError: any) {
+        // If index doesn't exist, fallback to query by className only and filter in memory
+        if (indexError.code === 9 || indexError.message?.includes('index')) {
+          logger.warn('Firestore index not found for attendance. Using fallback query. Please create index: attendance(className, date)');
+          const allAttendanceSnapshot = await db.collection('attendance')
+            .where('className', '==', className)
+            .get();
+          
+          // Filter by date range in memory
+          const filteredDocs = allAttendanceSnapshot.docs.filter(doc => {
+            const attendanceData = doc.data() as Attendance;
+            const docDate = attendanceData.date as Timestamp;
+            return docDate && docDate >= startOfDay && docDate <= endOfDay;
+          });
+          
+          // Create a mock snapshot-like object with same structure
+          attendanceSnapshot = {
+            docs: filteredDocs,
+            empty: filteredDocs.length === 0,
+            size: filteredDocs.length,
+          } as any;
+        } else {
+          throw indexError;
+        }
+      }
       
       const attendance: any[] = [];
       
-      // Filter by date range in memory
       for (const doc of attendanceSnapshot.docs) {
         const attendanceData = doc.data() as Attendance;
-        const docDate = attendanceData.date as Timestamp;
-        
-        // Check if the date is within our target date range
-        if (docDate && docDate >= startOfDay && docDate <= endOfDay) {
-          attendance.push({
-            id: doc.id,
-            studentId: attendanceData.studentId,
-            status: attendanceData.status,
-          });
-        }
+        attendance.push({
+          id: doc.id,
+          studentId: attendanceData.studentId,
+          status: attendanceData.status,
+        });
       }
       
       return attendance;
@@ -93,12 +116,39 @@ export class AttendanceService {
       dateObj.setHours(23, 59, 59, 999);
       const endOfDay = Timestamp.fromDate(dateObj);
       
-      const existingAttendance = await db.collection('attendance')
-        .where('studentId', '==', data.studentId)
-        .where('date', '>=', startOfDay)
-        .where('date', '<=', endOfDay)
-        .limit(1)
-        .get();
+      // Check for existing attendance (with fallback for missing index)
+      let existingAttendance;
+      try {
+        existingAttendance = await db.collection('attendance')
+          .where('studentId', '==', data.studentId)
+          .where('date', '>=', startOfDay)
+          .where('date', '<=', endOfDay)
+          .limit(1)
+          .get();
+      } catch (indexError: any) {
+        // If index doesn't exist, fallback to query by studentId only and filter in memory
+        if (indexError.code === 9 || indexError.message?.includes('index')) {
+          const allAttendanceSnapshot = await db.collection('attendance')
+            .where('studentId', '==', data.studentId)
+            .limit(100) // Reasonable limit for a single student
+            .get();
+          
+          // Filter by date range in memory
+          const filteredDocs = allAttendanceSnapshot.docs.filter(doc => {
+            const attendanceData = doc.data() as Attendance;
+            const docDate = attendanceData.date as Timestamp;
+            return docDate && docDate >= startOfDay && docDate <= endOfDay;
+          });
+          
+          existingAttendance = {
+            docs: filteredDocs.slice(0, 1), // Take first match
+            empty: filteredDocs.length === 0,
+            size: filteredDocs.length > 0 ? 1 : 0,
+          } as any;
+        } else {
+          throw indexError;
+        }
+      }
       
       // Get student data
       const studentDoc = await db.collection('students').doc(data.studentId).get();

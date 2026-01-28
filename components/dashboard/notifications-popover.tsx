@@ -58,21 +58,31 @@ export function NotificationsPopover() {
     }
   }
 
+  const [lastFetchTime, setLastFetchTime] = useState(0)
+
   useEffect(() => {
     if (user) {
       fetchNotifications()
+      setLastFetchTime(Date.now())
       // Refresh notifications every 30 seconds
-      const interval = setInterval(fetchNotifications, 30000)
+      const interval = setInterval(() => {
+        fetchNotifications()
+        setLastFetchTime(Date.now())
+      }, 30000)
       return () => clearInterval(interval)
     }
   }, [user])
 
-  // Fetch when popover opens
+  // OPTIMIZED: Only fetch when popover opens if data is stale (> 5 seconds old)
   useEffect(() => {
     if (open && user) {
-      fetchNotifications()
+      const timeSinceLastFetch = Date.now() - lastFetchTime
+      if (timeSinceLastFetch > 5000) {
+        fetchNotifications()
+        setLastFetchTime(Date.now())
+      }
     }
-  }, [open, user])
+  }, [open, user, lastFetchTime])
 
   const markAsRead = async (id: string) => {
     try {

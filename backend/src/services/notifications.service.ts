@@ -7,11 +7,29 @@ import logger from '../utils/logger';
 export class NotificationsService {
   async getNotifications(userId: string): Promise<any[]> {
     try {
-      // Query by userId only (avoids composite index requirement)
-      // We'll sort in memory instead
-      const notificationsSnapshot = await db.collection('notifications')
-        .where('userId', '==', userId)
-        .get();
+      // OPTIMIZED: Use Firestore ordering and limit if index exists, otherwise fallback to in-memory sort
+      let notificationsSnapshot;
+      let usedFallback = false;
+      try {
+        // Try with orderBy first (requires index)
+        notificationsSnapshot = await db.collection('notifications')
+          .where('userId', '==', userId)
+          .orderBy('createdAt', 'desc')
+          .limit(100)
+          .get();
+      } catch (indexError: any) {
+        // If index doesn't exist, fallback to query without orderBy and sort in memory
+        if (indexError.code === 9 || indexError.message?.includes('index')) {
+          logger.warn('Firestore index not found for notifications. Using fallback query. Please create index: notifications(userId, createdAt DESC)');
+          notificationsSnapshot = await db.collection('notifications')
+            .where('userId', '==', userId)
+            .limit(100)
+            .get();
+          usedFallback = true;
+        } else {
+          throw indexError;
+        }
+      }
       
       const notifications: any[] = [];
       
@@ -34,15 +52,16 @@ export class NotificationsService {
         });
       }
       
-      // Sort by createdAt descending (newest first)
-      notifications.sort((a, b) => {
-        const dateA = new Date(a.createdAt || a.timestamp).getTime();
-        const dateB = new Date(b.createdAt || b.timestamp).getTime();
-        return dateB - dateA;
-      });
+      // Sort in memory if we used fallback query (no orderBy)
+      if (usedFallback) {
+        notifications.sort((a, b) => {
+          const dateA = new Date(a.createdAt || a.timestamp).getTime();
+          const dateB = new Date(b.createdAt || b.timestamp).getTime();
+          return dateB - dateA;
+        });
+      }
       
-      // Return top 100
-      return notifications.slice(0, 100);
+      return notifications;
     } catch (error: any) {
       logger.error('Get notifications error:', error);
       throw new ApiErrorResponse('FETCH_FAILED', 'Failed to fetch notifications', 500);

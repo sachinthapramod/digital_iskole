@@ -7,17 +7,26 @@ import logger from '../utils/logger';
 export class ClassesService {
   async getClasses(): Promise<any[]> {
     try {
-      const classesSnapshot = await db.collection('classes').get();
-      const classes: any[] = [];
+      // OPTIMIZED: Fetch classes and students in parallel, then count in memory
+      const [classesSnapshot, allStudentsSnapshot] = await Promise.all([
+        db.collection('classes').get(),
+        db.collection('students')
+          .where('status', '==', 'active')
+          .get(),
+      ]);
       
+      // Count students per class in memory
+      const studentCountByClass = new Map<string, number>();
+      allStudentsSnapshot.docs.forEach(doc => {
+        const className = doc.data().className;
+        if (className) {
+          studentCountByClass.set(className, (studentCountByClass.get(className) || 0) + 1);
+        }
+      });
+      
+      const classes: any[] = [];
       for (const doc of classesSnapshot.docs) {
         const classData = doc.data() as Class;
-        
-        // Get student count
-        const studentsSnapshot = await db.collection('students')
-          .where('className', '==', classData.name)
-          .where('status', '==', 'active')
-          .get();
         
         classes.push({
           id: doc.id,
@@ -25,7 +34,7 @@ export class ClassesService {
           grade: classData.grade,
           section: classData.section,
           classTeacher: classData.classTeacherName || 'Not assigned',
-          students: studentsSnapshot.size,
+          students: studentCountByClass.get(classData.name) || 0,
           room: classData.room || 'Not assigned',
           status: classData.status,
         });

@@ -163,9 +163,11 @@ export class UsersController {
 
   // ========== STUDENTS ==========
 
-  async getStudents(_req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  async getStudents(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-      const students = await usersService.getStudents();
+      // OPTIMIZED: Support limit query parameter
+      const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined;
+      const students = await usersService.getStudents(limit);
       sendSuccess(res, { students }, 'Students fetched successfully');
     } catch (error: any) {
       logger.error('Get students controller error:', error);

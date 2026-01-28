@@ -181,28 +181,28 @@ export function ParentDashboard() {
               attendanceRate,
               averageMarks: avg,
               recentGrade: latestMark?.grade || "-",
-            } satisfies ChildCardVm
+              _marks: marks, // Store for reuse in recent marks
+            } satisfies ChildCardVm & { _marks?: MarkApi[] }
           })
         )
 
-        // Recent marks across children (latest 4)
+        // OPTIMIZED: Reuse marks from childCards instead of fetching again
         const marksAcrossChildren: RecentMarkVm[] = []
-        for (const child of childrenApi) {
-          try {
-            const marksRes = await apiGetJson(`/marks/student/${child.id}`)
-            const marks = ((marksRes?.data?.marks as MarkApi[]) || []).map((m) => ({
+        childCards.forEach((card) => {
+          // Access stored marks from childCards
+          const marks = (card as any)._marks || []
+          if (Array.isArray(marks) && marks.length > 0) {
+            const mappedMarks = marks.map((m: MarkApi) => ({
               subject: m.subjectName || "-",
               marks: m.marks,
               total: m.totalMarks,
               grade: m.grade || "-",
-              child: child.name,
+              child: card.name,
               _sortDate: m.updatedAt || m.createdAt || "",
             }))
-            marksAcrossChildren.push(...marks)
-          } catch {
-            // ignore per-child marks failures; dashboard should still render
+            marksAcrossChildren.push(...mappedMarks)
           }
-        }
+        })
 
         marksAcrossChildren.sort((a, b) => new Date(b._sortDate).getTime() - new Date(a._sortDate).getTime())
         const recentMarksVm = marksAcrossChildren.slice(0, 4)
