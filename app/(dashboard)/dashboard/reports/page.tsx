@@ -1301,7 +1301,7 @@ function StudentReportPreview({
   student,
   reportType,
   term,
-}: { student: (typeof classStudentsData)[0]; reportType: string; term: string }) {
+}: { student: any; reportType: string; term: string }) {
   const getTrendIcon = (trend: string) => {
     switch (trend) {
       case "up":
@@ -1314,11 +1314,25 @@ function StudentReportPreview({
   }
 
   const getGradeColor = (grade: string) => {
+    if (!grade) return "text-gray-600"
     if (grade.startsWith("A")) return "text-green-600"
     if (grade.startsWith("B")) return "text-blue-600"
     if (grade.startsWith("C")) return "text-yellow-600"
     return "text-red-600"
   }
+
+  // Handle real student data structure (from API) vs mock data
+  const subjects = student.subjects || []
+  const termProgress = student.termProgress || []
+  const attendance = student.attendance || { totalDays: 0, present: 0, absent: 0, late: 0 }
+  const averageMarks = student.averageMarks || 0
+  const attendanceRate = student.attendanceRate || 0
+  const rank = student.rank || 0
+  const totalStudents = student.totalStudents || 0
+  const admissionNo = student.admissionNo || student.admissionNumber || "N/A"
+  const studentClass = student.class || student.className || "N/A"
+  const classTeacher = student.classTeacher || "N/A"
+  const dateOfBirth = student.dateOfBirth || new Date().toISOString()
 
   return (
     <div className="bg-white text-black p-8 max-w-4xl mx-auto" id="report-content">
@@ -1349,109 +1363,121 @@ function StudentReportPreview({
           <div className="flex items-center gap-2">
             <FileText className="h-4 w-4 text-gray-500" />
             <span className="text-sm text-gray-500">Admission No:</span>
-            <span className="font-semibold">{student.admissionNo}</span>
+            <span className="font-semibold">{admissionNo}</span>
           </div>
           <div className="flex items-center gap-2">
             <Calendar className="h-4 w-4 text-gray-500" />
             <span className="text-sm text-gray-500">Date of Birth:</span>
-            <span className="font-semibold">{new Date(student.dateOfBirth).toLocaleDateString()}</span>
+            <span className="font-semibold">{new Date(dateOfBirth).toLocaleDateString()}</span>
           </div>
         </div>
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <BookOpen className="h-4 w-4 text-gray-500" />
             <span className="text-sm text-gray-500">Class:</span>
-            <span className="font-semibold">{student.class}</span>
+            <span className="font-semibold">{studentClass}</span>
           </div>
           <div className="flex items-center gap-2">
             <User className="h-4 w-4 text-gray-500" />
             <span className="text-sm text-gray-500">Class Teacher:</span>
-            <span className="font-semibold">{student.classTeacher}</span>
+            <span className="font-semibold">{classTeacher}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <Award className="h-4 w-4 text-gray-500" />
-            <span className="text-sm text-gray-500">Class Rank:</span>
-            <span className="font-semibold">
-              {student.rank} / {student.totalStudents}
-            </span>
-          </div>
+          {rank > 0 && (
+            <div className="flex items-center gap-2">
+              <Award className="h-4 w-4 text-gray-500" />
+              <span className="text-sm text-gray-500">Class Rank:</span>
+              <span className="font-semibold">
+                {rank} / {totalStudents}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Performance Summary */}
       <div className="grid grid-cols-4 gap-4 mb-6">
         <div className="text-center p-4 bg-teal-50 rounded-lg border border-teal-200">
-          <p className="text-2xl font-bold text-teal-700">{student.averageMarks}%</p>
+          <p className="text-2xl font-bold text-teal-700">{averageMarks}%</p>
           <p className="text-xs text-teal-600">Average Marks</p>
         </div>
         <div className="text-center p-4 bg-blue-50 rounded-lg border border-blue-200">
-          <p className="text-2xl font-bold text-blue-700">{student.attendanceRate}%</p>
+          <p className="text-2xl font-bold text-blue-700">{attendanceRate}%</p>
           <p className="text-xs text-blue-600">Attendance</p>
         </div>
-        <div className="text-center p-4 bg-purple-50 rounded-lg border border-purple-200">
-          <p className="text-2xl font-bold text-purple-700">#{student.rank}</p>
-          <p className="text-xs text-purple-600">Class Rank</p>
-        </div>
+        {rank > 0 && (
+          <div className="text-center p-4 bg-purple-50 rounded-lg border border-purple-200">
+            <p className="text-2xl font-bold text-purple-700">#{rank}</p>
+            <p className="text-xs text-purple-600">Class Rank</p>
+          </div>
+        )}
         <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
           <p className="text-2xl font-bold text-green-700">
-            {student.subjects.filter((s) => s.grade.startsWith("A")).length}
+            {subjects.filter((s: any) => s.grade && s.grade.startsWith("A")).length}
           </p>
           <p className="text-xs text-green-600">A Grades</p>
         </div>
       </div>
 
       {/* Subject-wise Performance */}
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-          <BarChart3 className="h-5 w-5 text-teal-600" />
-          Subject-wise Performance
-        </h2>
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-gray-100">
-              <TableHead>Subject</TableHead>
-              <TableHead className="text-center">Marks</TableHead>
-              <TableHead className="text-center">Grade</TableHead>
-              <TableHead className="text-center">Progress</TableHead>
-              <TableHead className="text-center">Trend</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {student.subjects.map((subject, index) => (
-              <TableRow key={index}>
-                <TableCell className="font-medium">{subject.name}</TableCell>
-                <TableCell className="text-center">{subject.marks}/100</TableCell>
-                <TableCell className="text-center">
-                  <span className={`font-semibold ${getGradeColor(subject.grade)}`}>{subject.grade}</span>
-                </TableCell>
-                <TableCell>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div className="bg-teal-600 h-2 rounded-full" style={{ width: `${subject.marks}%` }} />
-                  </div>
-                </TableCell>
-                <TableCell className="text-center">{getTrendIcon(subject.trend)}</TableCell>
+      {subjects.length > 0 ? (
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-teal-600" />
+            Subject-wise Performance
+          </h2>
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-gray-100">
+                <TableHead>Subject</TableHead>
+                <TableHead className="text-center">Marks</TableHead>
+                <TableHead className="text-center">Grade</TableHead>
+                <TableHead className="text-center">Progress</TableHead>
+                <TableHead className="text-center">Trend</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+            </TableHeader>
+            <TableBody>
+              {subjects.map((subject: any, index: number) => (
+                <TableRow key={index}>
+                  <TableCell className="font-medium">{subject.name || subject.subjectName || "N/A"}</TableCell>
+                  <TableCell className="text-center">{subject.marks || 0}/100</TableCell>
+                  <TableCell className="text-center">
+                    <span className={`font-semibold ${getGradeColor(subject.grade || "")}`}>{subject.grade || "N/A"}</span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div className="bg-teal-600 h-2 rounded-full" style={{ width: `${subject.marks || 0}%` }} />
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-center">{getTrendIcon(subject.trend || "")}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ) : (
+        <div className="mb-6 p-4 bg-gray-50 rounded-lg text-center text-gray-500">
+          No subject data available for preview.
+        </div>
+      )}
 
       {/* Term Progress */}
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-          <TrendingUp className="h-5 w-5 text-teal-600" />
-          Term Progress
-        </h2>
-        <div className="grid grid-cols-3 gap-4">
-          {student.termProgress.map((tp, index) => (
-            <div key={index} className="p-4 border rounded-lg text-center">
-              <p className="text-sm text-gray-500 mb-1">{tp.term}</p>
-              <p className="text-xl font-bold text-gray-900">{tp.average}%</p>
-              <p className="text-xs text-gray-500">Rank: #{tp.rank}</p>
-            </div>
-          ))}
+      {termProgress.length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-teal-600" />
+            Term Progress
+          </h2>
+          <div className="grid grid-cols-3 gap-4">
+            {termProgress.map((tp: any, index: number) => (
+              <div key={index} className="p-4 border rounded-lg text-center">
+                <p className="text-sm text-gray-500 mb-1">{tp.term}</p>
+                <p className="text-xl font-bold text-gray-900">{tp.average}%</p>
+                <p className="text-xs text-gray-500">Rank: #{tp.rank}</p>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Attendance Summary */}
       <div className="mb-6">
@@ -1461,33 +1487,33 @@ function StudentReportPreview({
         </h2>
         <div className="grid grid-cols-4 gap-4">
           <div className="p-3 bg-gray-50 rounded-lg text-center">
-            <p className="text-lg font-bold">{student.attendance.totalDays}</p>
+            <p className="text-lg font-bold">{attendance.totalDays}</p>
             <p className="text-xs text-gray-500">Total Days</p>
           </div>
           <div className="p-3 bg-green-50 rounded-lg text-center">
-            <p className="text-lg font-bold text-green-600">{student.attendance.present}</p>
+            <p className="text-lg font-bold text-green-600">{attendance.present}</p>
             <p className="text-xs text-green-600">Present</p>
           </div>
           <div className="p-3 bg-red-50 rounded-lg text-center">
-            <p className="text-lg font-bold text-red-600">{student.attendance.absent}</p>
+            <p className="text-lg font-bold text-red-600">{attendance.absent}</p>
             <p className="text-xs text-red-600">Absent</p>
           </div>
           <div className="p-3 bg-yellow-50 rounded-lg text-center">
-            <p className="text-lg font-bold text-yellow-600">{student.attendance.late}</p>
+            <p className="text-lg font-bold text-yellow-600">{attendance.late}</p>
             <p className="text-xs text-yellow-600">Late</p>
           </div>
         </div>
       </div>
 
       {/* Achievements */}
-      {student.achievements.length > 0 && (
+      {student.achievements && student.achievements.length > 0 && (
         <div className="mb-6">
           <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
             <Award className="h-5 w-5 text-teal-600" />
             Achievements & Awards
           </h2>
           <ul className="list-disc list-inside space-y-1 pl-2">
-            {student.achievements.map((achievement, index) => (
+            {student.achievements.map((achievement: string, index: number) => (
               <li key={index} className="text-gray-700">
                 {achievement}
               </li>
@@ -1526,19 +1552,53 @@ function ClassReportPreview({
   className = "Grade 10-A",
   classTeacher = "Mrs. Perera",
 }: {
-  students: typeof classStudentsData
+  students: any[]
   term: string
   reportType: string
   className?: string
   classTeacher?: string
 }) {
-  const classAverage = Math.round(students.reduce((sum, s) => sum + s.averageMarks, 0) / students.length)
-  const classAttendance = Math.round(students.reduce((sum, s) => sum + s.attendanceRate, 0) / students.length)
-  const topPerformers = [...students].sort((a, b) => b.averageMarks - a.averageMarks).slice(0, 5)
-  const subjectAverages = students[0].subjects.map((_, idx) => ({
-    name: students[0].subjects[idx].name,
-    average: Math.round(students.reduce((sum, s) => sum + s.subjects[idx].marks, 0) / students.length),
-  }))
+  if (!students || students.length === 0) {
+    return (
+      <div className="bg-white text-black p-8 max-w-4xl mx-auto text-center text-gray-500">
+        No students data available for preview.
+      </div>
+    )
+  }
+
+  // Calculate class averages with safe defaults
+  const studentsWithMarks = students.filter((s) => typeof s.averageMarks === "number" || s.averageMarks > 0)
+  const classAverage = studentsWithMarks.length > 0
+    ? Math.round(studentsWithMarks.reduce((sum, s) => sum + (s.averageMarks || 0), 0) / studentsWithMarks.length)
+    : 0
+
+  const studentsWithAttendance = students.filter((s) => typeof s.attendanceRate === "number" || s.attendanceRate > 0)
+  const classAttendance = studentsWithAttendance.length > 0
+    ? Math.round(studentsWithAttendance.reduce((sum, s) => sum + (s.attendanceRate || 0), 0) / studentsWithAttendance.length)
+    : 0
+
+  const topPerformers = [...students]
+    .filter((s) => s.averageMarks !== undefined && s.averageMarks !== null)
+    .sort((a, b) => (b.averageMarks || 0) - (a.averageMarks || 0))
+    .slice(0, 5)
+
+  // Calculate subject averages only if students have subjects data
+  let subjectAverages: Array<{ name: string; average: number }> = []
+  const firstStudentWithSubjects = students.find((s) => s.subjects && Array.isArray(s.subjects) && s.subjects.length > 0)
+  
+  if (firstStudentWithSubjects && firstStudentWithSubjects.subjects) {
+    const subjectCount = firstStudentWithSubjects.subjects.length
+    subjectAverages = firstStudentWithSubjects.subjects.map((_: any, idx: number) => {
+      const studentsWithSubject = students.filter((s) => s.subjects && s.subjects[idx] && typeof s.subjects[idx].marks === "number")
+      const avg = studentsWithSubject.length > 0
+        ? Math.round(studentsWithSubject.reduce((sum, s) => sum + (s.subjects[idx].marks || 0), 0) / studentsWithSubject.length)
+        : 0
+      return {
+        name: firstStudentWithSubjects.subjects[idx].name || `Subject ${idx + 1}`,
+        average: avg,
+      }
+    })
+  }
 
   return (
     <div className="bg-white text-black p-8 max-w-4xl mx-auto" id="class-report-content">
@@ -1601,46 +1661,59 @@ function ClassReportPreview({
           <p className="text-xs text-purple-600">Total Students</p>
         </div>
         <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
-          <p className="text-2xl font-bold text-green-700">{students.filter((s) => s.averageMarks >= 75).length}</p>
+          <p className="text-2xl font-bold text-green-700">
+            {students.filter((s) => (s.averageMarks || 0) >= 75).length}
+          </p>
           <p className="text-xs text-green-600">Above 75%</p>
         </div>
       </div>
 
       {/* Subject-wise Class Average */}
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-          <BarChart3 className="h-5 w-5 text-teal-600" />
-          Subject-wise Class Average
-        </h2>
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-gray-100">
-              <TableHead>Subject</TableHead>
-              <TableHead className="text-center">Class Average</TableHead>
-              <TableHead className="text-center">Highest</TableHead>
-              <TableHead className="text-center">Lowest</TableHead>
-              <TableHead className="text-center">Pass Rate</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {subjectAverages.map((subject, index) => {
-              const subjectMarks = students.map((s) => s.subjects[index].marks)
-              const highest = Math.max(...subjectMarks)
-              const lowest = Math.min(...subjectMarks)
-              const passRate = Math.round((subjectMarks.filter((m) => m >= 40).length / students.length) * 100)
-              return (
-                <TableRow key={index}>
-                  <TableCell className="font-medium">{subject.name}</TableCell>
-                  <TableCell className="text-center">{subject.average}%</TableCell>
-                  <TableCell className="text-center text-green-600 font-semibold">{highest}%</TableCell>
-                  <TableCell className="text-center text-red-600 font-semibold">{lowest}%</TableCell>
-                  <TableCell className="text-center">{passRate}%</TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
-      </div>
+      {subjectAverages.length > 0 ? (
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-teal-600" />
+            Subject-wise Class Average
+          </h2>
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-gray-100">
+                <TableHead>Subject</TableHead>
+                <TableHead className="text-center">Class Average</TableHead>
+                <TableHead className="text-center">Highest</TableHead>
+                <TableHead className="text-center">Lowest</TableHead>
+                <TableHead className="text-center">Pass Rate</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {subjectAverages.map((subject, index) => {
+                const subjectMarks = students
+                  .filter((s) => s.subjects && s.subjects[index] && typeof s.subjects[index].marks === "number")
+                  .map((s) => s.subjects[index].marks)
+                
+                if (subjectMarks.length === 0) return null
+                
+                const highest = Math.max(...subjectMarks)
+                const lowest = Math.min(...subjectMarks)
+                const passRate = Math.round((subjectMarks.filter((m) => m >= 40).length / subjectMarks.length) * 100)
+                return (
+                  <TableRow key={index}>
+                    <TableCell className="font-medium">{subject.name}</TableCell>
+                    <TableCell className="text-center">{subject.average}%</TableCell>
+                    <TableCell className="text-center text-green-600 font-semibold">{highest}%</TableCell>
+                    <TableCell className="text-center text-red-600 font-semibold">{lowest}%</TableCell>
+                    <TableCell className="text-center">{passRate}%</TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      ) : (
+        <div className="mb-6 p-4 bg-gray-50 rounded-lg text-center text-gray-500">
+          No subject data available for class preview.
+        </div>
+      )}
 
       {/* Top Performers */}
       <div className="mb-6">
@@ -1658,14 +1731,22 @@ function ClassReportPreview({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {topPerformers.map((student, index) => (
-              <TableRow key={student.id}>
-                <TableCell className="font-bold text-teal-600">#{index + 1}</TableCell>
-                <TableCell className="font-medium">{student.name}</TableCell>
-                <TableCell className="text-center">{student.averageMarks}%</TableCell>
-                <TableCell className="text-center">{student.attendanceRate}%</TableCell>
+            {topPerformers.length > 0 ? (
+              topPerformers.map((student, index) => (
+                <TableRow key={student.id || index}>
+                  <TableCell className="font-bold text-teal-600">#{index + 1}</TableCell>
+                  <TableCell className="font-medium">{student.name || "N/A"}</TableCell>
+                  <TableCell className="text-center">{student.averageMarks || 0}%</TableCell>
+                  <TableCell className="text-center">{student.attendanceRate || 0}%</TableCell>
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan={4} className="text-center text-gray-500 py-4">
+                  No performance data available
+                </TableCell>
               </TableRow>
-            ))}
+            )}
           </TableBody>
         </Table>
       </div>
@@ -1687,19 +1768,19 @@ function ClassReportPreview({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {[...students]
-              .sort((a, b) => a.rank - b.rank)
-              .map((student) => (
-                <TableRow key={student.id}>
-                  <TableCell className="font-semibold">#{student.rank}</TableCell>
-                  <TableCell>{student.name}</TableCell>
-                  <TableCell className="text-center">{student.averageMarks}%</TableCell>
-                  <TableCell className="text-center">{student.attendanceRate}%</TableCell>
-                  <TableCell className="text-center">
-                    {student.subjects.filter((s) => s.grade.startsWith("A")).length}
-                  </TableCell>
+            {students.map((student, index) => {
+              const aGrades = student.subjects && Array.isArray(student.subjects)
+                ? student.subjects.filter((s: any) => s.grade && s.grade.startsWith("A")).length
+                : 0
+              return (
+                <TableRow key={student.id || index}>
+                  <TableCell className="font-medium">{student.name || "N/A"}</TableCell>
+                  <TableCell className="text-center">{student.averageMarks || 0}%</TableCell>
+                  <TableCell className="text-center">{student.attendanceRate || 0}%</TableCell>
+                  <TableCell className="text-center">{aGrades}</TableCell>
                 </TableRow>
-              ))}
+              )
+            })}
           </TableBody>
         </Table>
       </div>
@@ -1959,15 +2040,87 @@ export default function ReportsPage() {
 
   // Teacher state
   const [teacherReportCategory, setTeacherReportCategory] = useState<"individual" | "class">("individual")
-  const [selectedStudent, setSelectedStudent] = useState(classStudentsData[0])
+  const [teacherStudents, setTeacherStudents] = useState<Array<{ id: string; name: string; admissionNo: string }>>([])
+  const [selectedStudentId, setSelectedStudentId] = useState<string>("")
+  const [teacherClassId, setTeacherClassId] = useState<string>("")
+  const [teacherClassName, setTeacherClassName] = useState<string>("")
   const [viewTeacherDialogOpen, setViewTeacherDialogOpen] = useState(false)
   const [classReportType, setClassReportType] = useState("Term Report")
   const [teacherReportType, setTeacherReportType] = useState("Term Report")
   const [teacherSelectedTerm, setTeacherSelectedTerm] = useState("Third Term")
   const [isTeacherGenerating, setIsTeacherGenerating] = useState(false)
+  const [isLoadingTeacher, setIsLoadingTeacher] = useState(true)
   const [teacherPreviewOpen, setTeacherPreviewOpen] = useState(false)
-  const [teacherReports, setTeacherReports] = useState(initialTeacherReports)
-  const [viewingTeacherReport, setViewingTeacherReport] = useState<(typeof initialTeacherReports)[0] | null>(null)
+  const [teacherReports, setTeacherReports] = useState<AdminReportRow[]>([])
+  const [viewingTeacherReport, setViewingTeacherReport] = useState<any | null>(null)
+  const [previewStudentData, setPreviewStudentData] = useState<any | null>(null)
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false)
+
+  const selectedStudent = useMemo(
+    () => teacherStudents.find((s) => s.id === selectedStudentId) || null,
+    [teacherStudents, selectedStudentId]
+  )
+
+  // Fetch full student data for preview
+  const fetchStudentPreviewData = async (studentId: string) => {
+    if (!studentId) return null
+    setIsLoadingPreview(true)
+    try {
+      const [studentRes, marksRes, statsRes] = await Promise.allSettled([
+        apiGetJson(`/users/students/${studentId}`),
+        apiGetJson(`/marks/student/${studentId}`),
+        apiGetJson(`/attendance/student/${studentId}/stats`),
+      ])
+
+      const student = studentRes.status === "fulfilled" ? (studentRes.value?.data?.student || studentRes.value) : null
+      const marks = marksRes.status === "fulfilled" ? (marksRes.value?.data?.marks || []) : []
+      const stats = statsRes.status === "fulfilled" ? (statsRes.value?.data?.stats || null) : null
+
+      // Calculate average marks
+      const avgMarks = marks.length > 0
+        ? Math.round(marks.reduce((sum: number, m: any) => sum + (m.percentage || 0), 0) / marks.length)
+        : 0
+
+      // Format subjects from marks
+      const subjects = marks.map((m: any) => ({
+        name: m.subjectName || "N/A",
+        marks: m.marks || 0,
+        grade: m.grade || "N/A",
+        trend: "stable" as const,
+      }))
+
+      // Format attendance
+      const attendance = stats ? {
+        totalDays: stats.totalDays || 0,
+        present: stats.presentDays || 0,
+        absent: stats.absentDays || 0,
+        late: stats.lateDays || 0,
+      } : { totalDays: 0, present: 0, absent: 0, late: 0 }
+
+      return {
+        id: studentId,
+        name: student?.fullName || student?.name || selectedStudent?.name || "N/A",
+        admissionNo: student?.admissionNumber || student?.admissionNo || selectedStudent?.admissionNo || "N/A",
+        admissionNumber: student?.admissionNumber || student?.admissionNo || selectedStudent?.admissionNo || "N/A",
+        class: student?.className || teacherClassName || "N/A",
+        className: student?.className || teacherClassName || "N/A",
+        classTeacher: user?.displayName || "Class Teacher",
+        dateOfBirth: student?.dateOfBirth || new Date().toISOString(),
+        averageMarks: avgMarks,
+        attendanceRate: stats?.attendanceRate || 0,
+        subjects,
+        attendance,
+        termProgress: [], // Can be calculated if needed
+        rank: 0, // Can be calculated if needed
+        totalStudents: teacherStudents.length,
+      }
+    } catch (e: any) {
+      console.error("Failed to fetch preview data:", e)
+      return null
+    } finally {
+      setIsLoadingPreview(false)
+    }
+  }
 
   const [adminReportCategory, setAdminReportCategory] = useState<"individual" | "class" | "school">("individual")
   const [adminSelectedClass, setAdminSelectedClass] = useState(allClassesData[8]) // Default to 10-A
@@ -2107,39 +2260,148 @@ export default function ReportsPage() {
     }
   }
 
-  // Teacher handlers
-  const handleTeacherGenerateReport = () => {
-    setIsTeacherGenerating(true)
-    setTimeout(() => {
-      const newReport = {
-        id: `report-${Date.now()}`,
-        type: teacherReportCategory === "individual" ? teacherReportType : classReportType,
-        studentId: teacherReportCategory === "individual" ? selectedStudent.id : null,
-        studentName: teacherReportCategory === "individual" ? selectedStudent.name : null,
-        term: teacherSelectedTerm,
-        academicYear: new Date().getFullYear().toString(),
-        generatedAt: new Date().toISOString(),
-        reportCategory: teacherReportCategory,
+  // Fetch teacher data
+  useEffect(() => {
+    if (user?.role !== "teacher") return
+
+    const fetchTeacherData = async () => {
+      setIsLoadingTeacher(true)
+      try {
+        // Fetch teacher's assigned class and students
+        const [classesRes, reportsRes] = await Promise.all([
+          apiGetJson("/academic/classes"),
+          apiGetJson("/reports/my"),
+        ])
+
+        // Find teacher's assigned class
+        const classes = classesRes?.data?.classes || []
+        const assignedClass = classes.find((c: any) => c.name === user?.assignedClass)
+        
+        if (assignedClass) {
+          setTeacherClassId(assignedClass.id)
+          setTeacherClassName(assignedClass.name)
+          
+          // Fetch students in this class
+          const studentsRes = await apiGetJson(`/attendance/students?className=${encodeURIComponent(assignedClass.name)}`)
+          const students = (studentsRes?.data?.students || []).map((s: any) => ({
+            id: s.id,
+            name: s.name || s.fullName,
+            admissionNo: s.admissionNumber || s.admissionNo || "",
+          }))
+          setTeacherStudents(students)
+          if (students.length > 0 && !selectedStudentId) {
+            setSelectedStudentId(students[0].id)
+          }
+        }
+
+        // Fetch reports
+        const reportsList = (reportsRes?.data?.reports || []).map((r: any) => ({
+          id: r.id,
+          title: r.title,
+          type: r.type,
+          status: r.status,
+          createdAt: r.createdAt,
+          studentId: r.studentId,
+          studentName: r.studentName,
+          className: r.className,
+          term: r.term,
+        }))
+        setTeacherReports(reportsList)
+      } catch (e: any) {
+        console.error("Failed to fetch teacher data:", e)
+      } finally {
+        setIsLoadingTeacher(false)
       }
-      setTeacherReports([newReport, ...teacherReports])
-      setIsTeacherGenerating(false)
+    }
+
+    fetchTeacherData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.role, user?.assignedClass])
+
+  // Teacher handlers
+  const handleTeacherGenerateReport = async () => {
+    setIsTeacherGenerating(true)
+    try {
+      if (teacherReportCategory === "individual") {
+        if (!selectedStudentId) return
+        await apiPostJson("/reports/student", {
+          studentId: selectedStudentId,
+          term: teacherSelectedTerm,
+          reportType: teacherReportType,
+        })
+      } else {
+        if (!teacherClassId) return
+        await apiPostJson("/reports/class", {
+          classId: teacherClassId,
+          term: teacherSelectedTerm,
+          reportType: classReportType,
+        })
+      }
+      
+      // Refresh reports
+      const reportsRes = await apiGetJson("/reports/my")
+      const reportsList = (reportsRes?.data?.reports || []).map((r: any) => ({
+        id: r.id,
+        title: r.title,
+        type: r.type,
+        status: r.status,
+        createdAt: r.createdAt,
+        studentId: r.studentId,
+        studentName: r.studentName,
+        className: r.className,
+        term: r.term,
+      }))
+      setTeacherReports(reportsList)
       setTeacherPreviewOpen(false)
-    }, 1500)
+    } catch (e: any) {
+      console.error("Failed to generate report:", e)
+    } finally {
+      setIsTeacherGenerating(false)
+    }
   }
 
-  const handleDownloadTeacherPDF = (report: (typeof initialTeacherReports)[0]) => {
-    const printWindow = window.open("", "_blank")
-    if (printWindow) {
-      if (report.reportCategory === "individual" && report.studentId) {
-        const student = classStudentsData.find((s) => s.id === report.studentId)
-        if (student) {
-          printWindow.document.write(generateStudentPrintHTML(student, report))
-        }
-      } else {
-        printWindow.document.write(generateClassPrintHTML(classStudentsData, report))
+  const handleDownloadTeacherPDF = async (reportId: string) => {
+    try {
+      const response = await apiRequest(`/reports/${reportId}/download`)
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data?.error?.message || data?.message || `Download failed (${response.status})`)
       }
-      printWindow.document.close()
-      printWindow.print()
+      const blob = await response.blob()
+      const disposition = response.headers.get("content-disposition") || ""
+      const match = disposition.match(/filename="([^"]+)"/)
+      const filename = match?.[1] || `report-${reportId}.pdf`
+
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (e: any) {
+      console.error("Failed to download PDF:", e)
+    }
+  }
+
+  const handleViewTeacherReport = async (reportId: string) => {
+    try {
+      const data = await apiGetJson(`/reports/${reportId}`)
+      const report = data.data?.report || data
+      setViewingTeacherReport(report)
+      setViewTeacherDialogOpen(true)
+    } catch (e: any) {
+      console.error("Failed to view report:", e)
+    }
+  }
+
+  const handleDeleteTeacherReport = async (reportId: string) => {
+    try {
+      await apiDeleteJson(`/reports/${reportId}`)
+      setTeacherReports((prev) => prev.filter((r) => r.id !== reportId))
+    } catch (e: any) {
+      console.error("Failed to delete report:", e)
     }
   }
 
@@ -3008,24 +3270,24 @@ export default function ReportsPage() {
                 <CardDescription>Choose a student to generate their report</CardDescription>
               </CardHeader>
               <CardContent>
-                <Select
-                  value={selectedStudent.id}
-                  onValueChange={(value) => {
-                    const student = classStudentsData.find((s) => s.id === value)
-                    if (student) setSelectedStudent(student)
-                  }}
-                >
-                  <SelectTrigger className="w-full max-w-md">
-                    <SelectValue placeholder="Select a student" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {classStudentsData.map((student) => (
-                      <SelectItem key={student.id} value={student.id}>
-                        {student.name} - {student.admissionNo}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {isLoadingTeacher ? (
+                  <div className="py-4 text-center text-muted-foreground">Loading students...</div>
+                ) : teacherStudents.length === 0 ? (
+                  <div className="py-4 text-center text-muted-foreground">No students found in your class.</div>
+                ) : (
+                  <Select value={selectedStudentId} onValueChange={setSelectedStudentId}>
+                    <SelectTrigger className="w-full max-w-md">
+                      <SelectValue placeholder="Select a student" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {teacherStudents.map((student) => (
+                        <SelectItem key={student.id} value={student.id}>
+                          {student.name} - {student.admissionNo}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </CardContent>
             </Card>
 
@@ -3036,7 +3298,9 @@ export default function ReportsPage() {
                   <Plus className="h-5 w-5" />
                   {t("generateReport")}
                 </CardTitle>
-                <CardDescription>Create a new report for {selectedStudent.name}</CardDescription>
+                <CardDescription>
+                  {selectedStudent ? `Create a new report for ${selectedStudent.name}` : "Select a student to generate report"}
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid gap-4 sm:grid-cols-3">
@@ -3069,8 +3333,25 @@ export default function ReportsPage() {
                     </Select>
                   </div>
                   <div className="flex items-end">
-                    <Dialog open={teacherPreviewOpen} onOpenChange={setTeacherPreviewOpen}>
-                      <Button onClick={() => setTeacherPreviewOpen(true)} className="w-full">
+                    <Dialog
+                      open={teacherPreviewOpen}
+                      onOpenChange={(open) => {
+                        setTeacherPreviewOpen(open)
+                        if (!open) {
+                          setPreviewStudentData(null) // Reset when dialog closes
+                        }
+                      }}
+                    >
+                      <Button
+                        onClick={async () => {
+                          setTeacherPreviewOpen(true)
+                          if (selectedStudentId) {
+                            const data = await fetchStudentPreviewData(selectedStudentId)
+                            setPreviewStudentData(data)
+                          }
+                        }}
+                        className="w-full"
+                      >
                         <Eye className="mr-2 h-4 w-4" />
                         Preview & Generate
                       </Button>
@@ -3079,16 +3360,24 @@ export default function ReportsPage() {
                           <DialogTitle>{t("reportPreview")}</DialogTitle>
                           <DialogDescription>{t("reportPreviewDescription")}</DialogDescription>
                         </DialogHeader>
-                        <StudentReportPreview
-                          student={selectedStudent}
-                          reportType={teacherReportType}
-                          term={teacherSelectedTerm}
-                        />
+                        {isLoadingPreview ? (
+                          <div className="py-8 text-center text-muted-foreground">Loading preview data...</div>
+                        ) : previewStudentData ? (
+                          <StudentReportPreview
+                            student={previewStudentData}
+                            reportType={teacherReportType}
+                            term={teacherSelectedTerm}
+                          />
+                        ) : selectedStudent ? (
+                          <div className="py-8 text-center text-muted-foreground">Failed to load preview data. Please try again.</div>
+                        ) : (
+                          <div className="py-8 text-center text-muted-foreground">Please select a student first.</div>
+                        )}
                         <DialogFooter>
                           <Button variant="outline" onClick={() => setTeacherPreviewOpen(false)}>
                             {t("cancel")}
                           </Button>
-                          <Button onClick={handleTeacherGenerateReport} disabled={isTeacherGenerating}>
+                          <Button onClick={handleTeacherGenerateReport} disabled={isTeacherGenerating || !selectedStudentId}>
                             {isTeacherGenerating ? t("generating") : t("saveReport")}
                           </Button>
                         </DialogFooter>
@@ -3106,7 +3395,7 @@ export default function ReportsPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Users className="h-5 w-5" />
-                  Class Report - 10-A
+                  Class Report - {teacherClassName || "Your Class"}
                 </CardTitle>
                 <CardDescription>Generate a comprehensive report for your entire class</CardDescription>
               </CardHeader>
@@ -3141,8 +3430,57 @@ export default function ReportsPage() {
                     </Select>
                   </div>
                   <div className="flex items-end">
-                    <Dialog open={teacherPreviewOpen} onOpenChange={setTeacherPreviewOpen}>
-                      <Button onClick={() => setTeacherPreviewOpen(true)} className="w-full">
+                    <Dialog
+                      open={teacherPreviewOpen}
+                      onOpenChange={(open) => {
+                        setTeacherPreviewOpen(open)
+                        if (!open) {
+                          setPreviewStudentData(null) // Reset when dialog closes
+                        }
+                      }}
+                    >
+                      <Button
+                        onClick={async () => {
+                          setTeacherPreviewOpen(true)
+                          // Fetch full data for all students for class preview
+                          if (teacherStudents.length > 0) {
+                            setIsLoadingPreview(true)
+                            try {
+                              const studentsWithData = await Promise.all(
+                                teacherStudents.map(async (s) => {
+                                  const [marksRes, statsRes] = await Promise.allSettled([
+                                    apiGetJson(`/marks/student/${s.id}`),
+                                    apiGetJson(`/attendance/student/${s.id}/stats`),
+                                  ])
+                                  const marks = marksRes.status === "fulfilled" ? (marksRes.value?.data?.marks || []) : []
+                                  const stats = statsRes.status === "fulfilled" ? (statsRes.value?.data?.stats || null) : null
+                                  const avgMarks = marks.length > 0
+                                    ? Math.round(marks.reduce((sum: number, m: any) => sum + (m.percentage || 0), 0) / marks.length)
+                                    : 0
+                                  const subjects = marks.map((m: any) => ({
+                                    name: m.subjectName || "N/A",
+                                    marks: m.marks || 0,
+                                    grade: m.grade || "N/A",
+                                    trend: "stable" as const,
+                                  }))
+                                  return {
+                                    ...s,
+                                    averageMarks: avgMarks,
+                                    attendanceRate: stats?.attendanceRate || 0,
+                                    subjects,
+                                  }
+                                })
+                              )
+                              setPreviewStudentData(studentsWithData)
+                            } catch (e: any) {
+                              console.error("Failed to fetch class preview data:", e)
+                            } finally {
+                              setIsLoadingPreview(false)
+                            }
+                          }
+                        }}
+                        className="w-full"
+                      >
                         <Eye className="mr-2 h-4 w-4" />
                         Preview & Generate
                       </Button>
@@ -3151,16 +3489,26 @@ export default function ReportsPage() {
                           <DialogTitle>Class Report Preview</DialogTitle>
                           <DialogDescription>Review the class report before saving</DialogDescription>
                         </DialogHeader>
-                        <ClassReportPreview
-                          students={classStudentsData}
-                          term={teacherSelectedTerm}
-                          reportType={classReportType}
-                        />
+                        {isLoadingPreview ? (
+                          <div className="py-8 text-center text-muted-foreground">Loading preview data...</div>
+                        ) : previewStudentData && Array.isArray(previewStudentData) && previewStudentData.length > 0 ? (
+                          <ClassReportPreview
+                            students={previewStudentData}
+                            term={teacherSelectedTerm}
+                            reportType={classReportType}
+                            className={teacherClassName}
+                            classTeacher={user?.displayName || "Class Teacher"}
+                          />
+                        ) : teacherStudents.length === 0 ? (
+                          <div className="py-8 text-center text-muted-foreground">No students found in your class.</div>
+                        ) : (
+                          <div className="py-8 text-center text-muted-foreground">Failed to load preview data. Please try again.</div>
+                        )}
                         <DialogFooter>
                           <Button variant="outline" onClick={() => setTeacherPreviewOpen(false)}>
                             {t("cancel")}
                           </Button>
-                          <Button onClick={handleTeacherGenerateReport} disabled={isTeacherGenerating}>
+                          <Button onClick={handleTeacherGenerateReport} disabled={isTeacherGenerating || !teacherClassId}>
                             {isTeacherGenerating ? t("generating") : t("saveReport")}
                           </Button>
                         </DialogFooter>
@@ -3183,104 +3531,275 @@ export default function ReportsPage() {
             <CardDescription>View and manage all generated reports</CardDescription>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Report Type</TableHead>
-                  <TableHead>Student/Class</TableHead>
-                  <TableHead>Term</TableHead>
-                  <TableHead>Generated</TableHead>
-                  <TableHead className="text-right">{t("actions")}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {teacherReports.map((report) => (
-                  <TableRow key={report.id}>
-                    <TableCell>
-                      <Badge variant={report.reportCategory === "class" ? "default" : "outline"}>{report.type}</Badge>
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {report.reportCategory === "class" ? "Class 10-A" : report.studentName}
-                    </TableCell>
-                    <TableCell>{report.term}</TableCell>
-                    <TableCell>{new Date(report.generatedAt).toLocaleDateString()}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            setViewingTeacherReport(report)
-                            setViewTeacherDialogOpen(true)
-                          }}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDownloadTeacherPDF(report)}>
-                          <Download className="h-4 w-4" />
-                        </Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>{t("deleteReport")}</AlertDialogTitle>
-                              <AlertDialogDescription>{t("deleteReportConfirmation")}</AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => setTeacherReports(teacherReports.filter((r) => r.id !== report.id))}
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                              >
-                                {t("delete")}
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    </TableCell>
+            {isLoadingTeacher ? (
+              <div className="py-8 text-center text-muted-foreground">Loading reports...</div>
+            ) : teacherReports.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>{t("noReportsYet")}</p>
+                <p className="text-sm">{t("generateFirstReport")}</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Title</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Student/Class</TableHead>
+                    <TableHead>Term</TableHead>
+                    <TableHead>Generated</TableHead>
+                    <TableHead className="text-right">{t("actions")}</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {teacherReports.map((report) => (
+                    <TableRow key={report.id}>
+                      <TableCell className="font-medium">{report.title}</TableCell>
+                      <TableCell className="capitalize">{report.type}</TableCell>
+                      <TableCell>{report.studentName || report.className || "-"}</TableCell>
+                      <TableCell>{report.term || "-"}</TableCell>
+                      <TableCell>{formatDate(report.createdAt)}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button variant="ghost" size="icon" onClick={() => handleViewTeacherReport(report.id)}>
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => handleDownloadTeacherPDF(report.id)}>
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>{t("deleteReport")}</AlertDialogTitle>
+                                <AlertDialogDescription>{t("deleteReportConfirmation")}</AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => handleDeleteTeacherReport(report.id)}
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                >
+                                  {t("delete")}
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
 
-        {/* View Teacher Report Dialog */}
+        {/* View Teacher Report Dialog - Same format as admin */}
         <Dialog open={viewTeacherDialogOpen} onOpenChange={setViewTeacherDialogOpen}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>{viewingTeacherReport?.type}</DialogTitle>
+              <DialogTitle>{viewingTeacherReport?.title || "Report Details"}</DialogTitle>
               <DialogDescription>
-                {viewingTeacherReport?.reportCategory === "class" ? "Class 10-A" : viewingTeacherReport?.studentName} -{" "}
-                {viewingTeacherReport?.term}
+                {viewingTeacherReport?.type === "student" && "Student Report"}
+                {viewingTeacherReport?.type === "class" && "Class Report"}
               </DialogDescription>
             </DialogHeader>
-            {viewingTeacherReport?.reportCategory === "class" ? (
-              <ClassReportPreview
-                students={classStudentsData}
-                term={viewingTeacherReport?.term || ""}
-                reportType={viewingTeacherReport?.type || ""}
-              />
-            ) : viewingTeacherReport?.studentId ? (
-              <StudentReportPreview
-                student={classStudentsData.find((s) => s.id === viewingTeacherReport.studentId) || classStudentsData[0]}
-                reportType={viewingTeacherReport?.type || ""}
-                term={viewingTeacherReport?.term || ""}
-              />
-            ) : null}
+
+            {viewingTeacherReport?.data && (
+              <div className="space-y-6 mt-4">
+                {/* Student Report */}
+                {viewingTeacherReport.type === "student" && viewingTeacherReport.data.student && (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-lg">Student Information</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-2">
+                          <div>
+                            <span className="text-sm text-muted-foreground">Name:</span>
+                            <p className="font-medium">{viewingTeacherReport.data.student.name}</p>
+                          </div>
+                          <div>
+                            <span className="text-sm text-muted-foreground">Class:</span>
+                            <p className="font-medium">{viewingTeacherReport.data.student.className}</p>
+                          </div>
+                          {viewingTeacherReport.data.student.admissionNumber && (
+                            <div>
+                              <span className="text-sm text-muted-foreground">Admission No:</span>
+                              <p className="font-medium">{viewingTeacherReport.data.student.admissionNumber}</p>
+                            </div>
+                          )}
+                          {viewingTeacherReport.data.term && (
+                            <div>
+                              <span className="text-sm text-muted-foreground">Term:</span>
+                              <p className="font-medium">{viewingTeacherReport.data.term}</p>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-lg">Overall Performance</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <p className="text-sm text-muted-foreground">Average</p>
+                              <p className="text-2xl font-bold">{viewingTeacherReport.data.marks?.averagePercent || 0}%</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-muted-foreground">Grade</p>
+                              <p className="text-2xl font-bold">{viewingTeacherReport.data.marks?.overallGrade || "-"}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-muted-foreground">Attendance</p>
+                              <p className="text-2xl font-bold">{viewingTeacherReport.data.attendance?.attendanceRate || 0}%</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-muted-foreground">Subjects</p>
+                              <p className="text-2xl font-bold">{viewingTeacherReport.data.marks?.subjects?.length || 0}</p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Attendance Summary</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-4 gap-4">
+                          <div>
+                            <p className="text-sm text-muted-foreground">Total Days</p>
+                            <p className="text-xl font-semibold">{viewingTeacherReport.data.attendance?.totalDays || 0}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Present</p>
+                            <p className="text-xl font-semibold text-green-600">{viewingTeacherReport.data.attendance?.presentDays || 0}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Absent</p>
+                            <p className="text-xl font-semibold text-red-600">{viewingTeacherReport.data.attendance?.absentDays || 0}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Late</p>
+                            <p className="text-xl font-semibold text-yellow-600">{viewingTeacherReport.data.attendance?.lateDays || 0}</p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {viewingTeacherReport.data.marks?.subjects && viewingTeacherReport.data.marks.subjects.length > 0 && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-lg">Subject Marks</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Subject</TableHead>
+                                <TableHead>Exam</TableHead>
+                                <TableHead className="text-right">Marks</TableHead>
+                                <TableHead className="text-right">Total</TableHead>
+                                <TableHead className="text-right">Percentage</TableHead>
+                                <TableHead className="text-center">Grade</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {viewingTeacherReport.data.marks.subjects.map((subject: any, idx: number) => (
+                                <TableRow key={idx}>
+                                  <TableCell className="font-medium">{subject.subjectName}</TableCell>
+                                  <TableCell>{subject.examName || "-"}</TableCell>
+                                  <TableCell className="text-right">{subject.marks ?? 0}</TableCell>
+                                  <TableCell className="text-right">{subject.totalMarks ?? 0}</TableCell>
+                                  <TableCell className="text-right">{subject.percentage ?? 0}%</TableCell>
+                                  <TableCell className="text-center">
+                                    <Badge variant="secondary">{subject.grade || "-"}</Badge>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </>
+                )}
+
+                {/* Class Report */}
+                {viewingTeacherReport.type === "class" && viewingTeacherReport.data.class && (
+                  <>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg">Class Information</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        <div>
+                          <span className="text-sm text-muted-foreground">Class:</span>
+                          <p className="font-medium">{viewingTeacherReport.data.class.name}</p>
+                        </div>
+                        <div>
+                          <span className="text-sm text-muted-foreground">Class Teacher:</span>
+                          <p className="font-medium">{viewingTeacherReport.data.class.teacher || "-"}</p>
+                        </div>
+                        <div>
+                          <span className="text-sm text-muted-foreground">Total Students:</span>
+                          <p className="font-medium">{viewingTeacherReport.data.students?.length || 0}</p>
+                        </div>
+                        {viewingTeacherReport.data.term && (
+                          <div>
+                            <span className="text-sm text-muted-foreground">Term:</span>
+                            <p className="font-medium">{viewingTeacherReport.data.term}</p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {viewingTeacherReport.data.summary && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-lg">Class Summary</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="grid grid-cols-3 gap-4">
+                            <div>
+                              <p className="text-sm text-muted-foreground">Average Marks</p>
+                              <p className="text-2xl font-bold">{viewingTeacherReport.data.summary.averageMarks || 0}%</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-muted-foreground">Average Attendance</p>
+                              <p className="text-2xl font-bold">{viewingTeacherReport.data.summary.averageAttendance || 0}%</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-muted-foreground">Top Students</p>
+                              <p className="text-2xl font-bold">{viewingTeacherReport.data.topStudents?.length || 0}</p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
             <DialogFooter>
               <Button variant="outline" onClick={() => setViewTeacherDialogOpen(false)}>
                 Close
               </Button>
-              {viewingTeacherReport && (
-                <Button onClick={() => handleDownloadTeacherPDF(viewingTeacherReport)}>
+              {viewingTeacherReport?.id && (
+                <Button onClick={() => { setViewTeacherDialogOpen(false); handleDownloadTeacherPDF(viewingTeacherReport.id) }}>
                   <Download className="mr-2 h-4 w-4" />
-                  {t("downloadPDF")}
+                  Download PDF
                 </Button>
               )}
             </DialogFooter>

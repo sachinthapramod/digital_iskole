@@ -180,14 +180,40 @@ export class ReportsController {
         return;
       }
 
-      if (req.user.role !== 'admin') {
-        sendError(res, 'AUTH_UNAUTHORIZED', 'Only admins can generate reports here', 403);
-        return;
-      }
-
       const { classId, term, reportType } = req.body;
       if (!classId) {
         sendError(res, 'VALIDATION_ERROR', 'classId is required', 400);
+        return;
+      }
+
+      // Authorization: Admin can generate for any class, teachers only for their assigned class
+      if (req.user.role === 'teacher') {
+        const { db } = await import('../config/firebase');
+        // Get teacher's assigned class
+        const teacherDoc = await db.collection('teachers').where('userId', '==', req.user.uid).limit(1).get();
+        if (teacherDoc.empty) {
+          sendError(res, 'NOT_FOUND', 'Teacher profile not found', 404);
+          return;
+        }
+        const teacherData = teacherDoc.docs[0].data();
+        const assignedClassName = teacherData?.assignedClass;
+        
+        // Get class name from classId
+        const classDoc = await db.collection('classes').doc(classId).get();
+        if (!classDoc.exists) {
+          sendError(res, 'NOT_FOUND', 'Class not found', 404);
+          return;
+        }
+        const classData = classDoc.data();
+        const className = classData?.name;
+        
+        // Verify teacher is assigned to this class
+        if (assignedClassName !== className) {
+          sendError(res, 'AUTH_UNAUTHORIZED', 'You can only generate reports for your assigned class', 403);
+          return;
+        }
+      } else if (req.user.role !== 'admin') {
+        sendError(res, 'AUTH_UNAUTHORIZED', 'Only admins and teachers can generate class reports', 403);
         return;
       }
 

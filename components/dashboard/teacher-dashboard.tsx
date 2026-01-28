@@ -45,40 +45,28 @@ const progressStats = {
   ],
 }
 
-const notices = [
-  {
-    id: 1,
-    title: "Staff Meeting",
-    content: "Monthly staff meeting scheduled for Friday at 3 PM in the main hall.",
-    date: "2024-12-10",
-    priority: "high",
-    author: "Principal",
-  },
-  {
-    id: 2,
-    title: "Exam Schedule Released",
-    content: "First term examination schedule has been published. Please check the notice board.",
-    date: "2024-12-09",
-    priority: "medium",
-    author: "Admin",
-  },
-  {
-    id: 3,
-    title: "Sports Day Preparation",
-    content: "All class teachers to submit student participation list by Wednesday.",
-    date: "2024-12-08",
-    priority: "normal",
-    author: "Sports Dept",
-  },
-  {
-    id: 4,
-    title: "Report Card Submission",
-    content: "Please submit all student evaluations before the deadline.",
-    date: "2024-12-07",
-    priority: "high",
-    author: "Admin",
-  },
-]
+interface NoticeApi {
+  id: string
+  title: string
+  content: string
+  priority: "high" | "medium" | "low" | "normal"
+  authorName: string
+  publishedAt: string
+  date?: string
+}
+
+async function apiGetJson(endpoint: string): Promise<any> {
+  const response = await apiRequest(endpoint)
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok || data?.success === false) {
+    const message =
+      data?.error?.message || data?.message || `Request failed (${response.status} ${response.statusText})`
+    throw new Error(message)
+  }
+
+  return data
+}
 
 interface Student {
   id: string
@@ -93,12 +81,15 @@ export function TeacherDashboard() {
   const [classStudents, setClassStudents] = useState<Student[]>([])
   const [isLoadingStudents, setIsLoadingStudents] = useState(true)
   const [todayAttendance, setTodayAttendance] = useState<Record<string, "present" | "absent" | "late">>({})
+  const [notices, setNotices] = useState<NoticeApi[]>([])
+  const [isLoadingNotices, setIsLoadingNotices] = useState(true)
   
   useEffect(() => {
     if (user?.assignedClass) {
       fetchClassStudents()
       fetchTodayAttendance()
     }
+    fetchNotices()
   }, [user?.assignedClass])
 
   const fetchClassStudents = async () => {
@@ -136,6 +127,38 @@ export function TeacherDashboard() {
       }
     } catch (err: any) {
       console.error('Fetch today attendance error:', err)
+    }
+  }
+
+  const fetchNotices = async () => {
+    try {
+      setIsLoadingNotices(true)
+      const noticesRes = await apiGetJson("/notices?target=teachers")
+      const noticesApi = (noticesRes?.data?.notices || []) as NoticeApi[]
+      
+      // Format notices and sort by date (newest first)
+      const formattedNotices = noticesApi
+        .map((n) => ({
+          id: n.id,
+          title: n.title,
+          content: n.content,
+          priority: n.priority || "normal",
+          author: n.authorName || "Admin",
+          date: n.date || n.publishedAt ? new Date(n.publishedAt).toLocaleDateString() : new Date().toLocaleDateString(),
+        }))
+        .sort((a, b) => {
+          const dateA = new Date(a.date).getTime()
+          const dateB = new Date(b.date).getTime()
+          return dateB - dateA
+        })
+        .slice(0, 4) // Show only latest 4 notices
+      
+      setNotices(formattedNotices)
+    } catch (err: any) {
+      console.error('Fetch notices error:', err)
+      setNotices([]) // Set empty array on error
+    } finally {
+      setIsLoadingNotices(false)
     }
   }
 
@@ -394,42 +417,52 @@ export function TeacherDashboard() {
             </Button>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3 sm:space-y-4">
-              {notices.map((notice) => (
-                <div
-                  key={notice.id}
-                  className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-4 p-3 sm:p-4 rounded-lg bg-muted/50"
-                >
-                  <div className="flex items-start gap-2 sm:gap-3 min-w-0">
-                    <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      {getPriorityIcon(notice.priority)}
-                    </div>
-                    <div className="space-y-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium text-xs sm:text-sm text-foreground">{notice.title}</p>
-                        <Badge variant={getPriorityColor(notice.priority) as any} className="text-xs">
-                          {notice.priority}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground line-clamp-2">{notice.content}</p>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>By {notice.author}</span>
-                        <span>•</span>
-                        <span>{notice.date}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    asChild
-                    className="w-full sm:w-auto mt-2 sm:mt-0 flex-shrink-0 bg-transparent"
+            {isLoadingNotices ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : notices.length === 0 ? (
+              <div className="text-center py-8 text-sm text-muted-foreground">
+                No notices available.
+              </div>
+            ) : (
+              <div className="space-y-3 sm:space-y-4">
+                {notices.map((notice) => (
+                  <div
+                    key={notice.id}
+                    className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-4 p-3 sm:p-4 rounded-lg bg-muted/50"
                   >
-                    <Link href="/dashboard/notices">View</Link>
-                  </Button>
-                </div>
-              ))}
-            </div>
+                    <div className="flex items-start gap-2 sm:gap-3 min-w-0">
+                      <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        {getPriorityIcon(notice.priority)}
+                      </div>
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium text-xs sm:text-sm text-foreground">{notice.title}</p>
+                          <Badge variant={getPriorityColor(notice.priority) as any} className="text-xs">
+                            {notice.priority}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground line-clamp-2">{notice.content}</p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>By {notice.author}</span>
+                          <span>•</span>
+                          <span>{notice.date}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      asChild
+                      className="w-full sm:w-auto mt-2 sm:mt-0 flex-shrink-0 bg-transparent"
+                    >
+                      <Link href="/dashboard/notices">View</Link>
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
