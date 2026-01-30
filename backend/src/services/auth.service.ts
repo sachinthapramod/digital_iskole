@@ -275,13 +275,38 @@ export class AuthService {
 
   async forgotPassword(email: string): Promise<void> {
     try {
-      await auth.generatePasswordResetLink(email);
-      // In production, send email with reset link
-      logger.info(`Password reset link generated for ${email}`);
+      const FIREBASE_WEB_API_KEY = process.env.FIREBASE_WEB_API_KEY?.trim();
+      if (!FIREBASE_WEB_API_KEY || FIREBASE_WEB_API_KEY === '') {
+        logger.error('FIREBASE_WEB_API_KEY is not configured for forgot password');
+        throw new ApiErrorResponse('SERVER_ERROR', 'Password reset is not configured. Please try again later.', 500);
+      }
+
+      // Use Firebase REST API to send password reset email (Firebase sends the email)
+      const response = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${FIREBASE_WEB_API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requestType: 'PASSWORD_RESET',
+            email: email.trim(),
+          }),
+        }
+      );
+
+      const data = await response.json() as { error?: { message?: string }; email?: string };
+
+      if (!response.ok) {
+        logger.warn('Forgot password request failed (may be unknown email):', data.error?.message);
+        // Don't reveal if email exists or not for security - always return success
+      } else {
+        logger.info(`Password reset email sent to ${email}`);
+      }
+      // Always resolve; never reveal whether the email exists
     } catch (error: any) {
+      if (error instanceof ApiErrorResponse) throw error;
       logger.error('Forgot password error:', error);
-      // Don't reveal if email exists or not for security
-      throw new ApiErrorResponse('AUTH_EMAIL_SENT', 'If the email exists, a password reset link has been sent', 200);
+      // Don't reveal outcome; controller will send generic success message
     }
   }
 

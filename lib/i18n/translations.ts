@@ -161,6 +161,11 @@ export const translations = {
     rememberMe: "Remember me",
     invalidCredentials: "Invalid email or password",
     sessionExpired: "Your session has expired. Please login again.",
+    forgotPasswordTitle: "Reset your password",
+    forgotPasswordSubtitle: "Enter your email and we'll send you a link to reset your password.",
+    sendResetLink: "Send reset link",
+    resetEmailSent: "If an account exists for this email, you will receive a password reset link shortly. Please check your inbox.",
+    backToLogin: "Back to login",
 
     // Child/Student Info (Parent Portal)
     myChildren: "My Children",
@@ -371,6 +376,11 @@ export const translations = {
     rememberMe: "මතක තබා ගන්න",
     invalidCredentials: "වලංගු නොවන විද්‍යුත් තැපෑල හෝ මුරපදය",
     sessionExpired: "ඔබගේ සැසිය කල් ඉකුත් විය. නැවත පිවිසෙන්න.",
+    forgotPasswordTitle: "ඔබගේ මුරපදය යළි සකසන්න",
+    forgotPasswordSubtitle: "ඔබගේ විද්‍යුත් තැපෑල ඇතුළත් කරන්න, අපි මුරපදය යළි සැකසීමේ සබැඳියක් ඔබට යවන්නෙමු.",
+    sendResetLink: "යළි සැකසුම් සබැඳිය යවන්න",
+    resetEmailSent: "මෙම විද්‍යුත් තැපෑල සඳහා ගිණුමක් තිබේ නම්, ඔබට ඉක්මනින් මුරපද යළි සැකසුම් සබැඳියක් ලැබෙනු ඇත. කරුණාකර ඔබගේ එන ලිපි පෙට්ටිය පරීක්ෂා කරන්න.",
+    backToLogin: "පිවිසීමට ආපසු",
 
     // Child/Student Info (Parent Portal)
     myChildren: "මගේ දරුவන්",
@@ -581,6 +591,11 @@ export const translations = {
     rememberMe: "என்னை நினைவில் கொள்",
     invalidCredentials: "தவறான மின்னஞ்சல் அல்லது கடவுச்சொல்",
     sessionExpired: "உங்கள் அமர்வு காலாவதியானது. மீண்டும் உள்நுழையவும்.",
+    forgotPasswordTitle: "உங்கள் கடவுச்சொல்லை மீட்டமைக்கவும்",
+    forgotPasswordSubtitle: "உங்கள் மின்னஞ்சலை உள்ளிடவும், கடவுச்சொல்லை மீட்டமைக்க இணைப்பை அனுப்புவோம்.",
+    sendResetLink: "மீட்டமைப்பு இணைப்பை அனுப்பு",
+    resetEmailSent: "இந்த மின்னஞ்சலுக்கான கணக்கு இருந்தால், கடவுச்சொல் மீட்டமைப்பு இணைப்பு விரைவில் கிடைக்கும். உங்கள் இன்பாக்ஸை சரிபார்க்கவும்.",
+    backToLogin: "உள்நுழைப்புக்கு திரும்பு",
 
     // Child/Student Info (Parent Portal)
     myChildren: "என் குழந்தைகள்",

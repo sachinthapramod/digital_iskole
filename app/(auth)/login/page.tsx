@@ -14,6 +14,7 @@ import { LanguageSwitcher } from "@/components/language-switcher"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useLanguage } from "@/lib/i18n/context"
 import { useAuth } from "@/lib/auth/context"
+import Link from "next/link"
 import { Loader2, AlertCircle, Eye, EyeOff } from "lucide-react"
 
 export default function LoginPage() {
@@ -76,7 +77,7 @@ export default function LoginPage() {
                 <Input
                   id="email"
                   type="email"
-                  placeholder="name@school.lk"
+                  placeholder="name@digitaliskole.lk"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -87,8 +88,8 @@ export default function LoginPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="password">{t("password")}</Label>
-                  <Button type="button" variant="link" className="px-0 text-sm text-muted-foreground">
-                    {t("forgotPassword")}
+                  <Button type="button" variant="link" className="px-0 text-sm text-muted-foreground" asChild>
+                    <Link href="/forgot-password">{t("forgotPassword")}</Link>
                   </Button>
                 </div>
                 <div className="relative">
@@ -128,22 +129,6 @@ export default function LoginPage() {
                 )}
               </Button>
             </form>
-
-            {/* Demo Credentials */}
-            <div className="mt-6 p-4 rounded-lg bg-muted">
-              <p className="text-sm font-medium text-muted-foreground mb-2">Demo Credentials:</p>
-              <div className="space-y-1 text-sm">
-                <p>
-                  <span className="font-medium">Admin:</span> admin@iskole.lk / admin123
-                </p>
-                <p>
-                  <span className="font-medium">Teacher:</span> teacher@iskole.lk / teacher123
-                </p>
-                <p>
-                  <span className="font-medium">Parent:</span> parent@iskole.lk / parent123
-                </p>
-              </div>
-            </div>
           </CardContent>
         </Card>
       </main>
