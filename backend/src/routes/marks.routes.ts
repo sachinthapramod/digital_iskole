@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticateToken } from '../middleware/auth.middleware';
-import { requireAdminOrTeacher } from '../middleware/role.middleware';
+import { requireAdminOrTeacher, requireTeacher } from '../middleware/role.middleware';
 import marksController from '../controllers/marks.controller';
 
 const router = Router();
@@ -13,11 +13,11 @@ router.get('/exam/:examId', requireAdminOrTeacher, marksController.getMarksByExa
 // Get students for marks entry
 router.get('/students', requireAdminOrTeacher, marksController.getStudentsForMarksEntry.bind(marksController));
 
-// Enter marks (admin and teachers can enter)
-router.post('/enter', requireAdminOrTeacher, marksController.enterMarks.bind(marksController));
+// Enter marks (teachers only; admin can only view)
+router.post('/enter', requireTeacher, marksController.enterMarks.bind(marksController));
 
-// Update mark (admin and teachers can update)
-router.put('/:id', requireAdminOrTeacher, marksController.updateMark.bind(marksController));
+// Update mark (teachers only; admin can only view)
+router.put('/:id', requireTeacher, marksController.updateMark.bind(marksController));
 
 // Get student marks
 router.get('/student/:id', authenticateToken, marksController.getStudentMarks.bind(marksController));

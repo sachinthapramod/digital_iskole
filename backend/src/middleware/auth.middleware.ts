@@ -53,10 +53,15 @@ export async function authenticateToken(
         return;
       }
 
+      // Normalize role to lowercase so "Admin" / "ADMIN" from Firestore works with requireAdminOrTeacher etc.
+      const role = (userData.role && typeof userData.role === 'string')
+        ? userData.role.toLowerCase()
+        : userData.role;
+
       req.user = {
         uid: decoded.uid,
         email: decoded.email || userData.email,
-        role: userData.role,
+        role: role as 'admin' | 'teacher' | 'parent',
         profileId: userData.profileId,
       };
 

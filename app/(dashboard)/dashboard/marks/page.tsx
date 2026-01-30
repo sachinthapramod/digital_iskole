@@ -322,6 +322,8 @@ export default function MarksPage() {
   const [success, setSuccess] = useState<string | null>(null)
 
   const isTeacherOrAdmin = user?.role === "teacher" || user?.role === "admin"
+  const isTeacher = user?.role === "teacher"
+  const isAdmin = user?.role === "admin"
 
   // Parent view state
   const [parentChildren, setParentChildren] = useState<ParentChild[]>([])
@@ -886,21 +888,23 @@ export default function MarksPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">{t("marks")}</h1>
-          <p className="text-muted-foreground">{t("enterMarks")}</p>
+          <p className="text-muted-foreground">{isAdmin ? t("viewMarks") : t("enterMarks")}</p>
         </div>
-        <Button onClick={handleSave} disabled={isSaving || !selectedExam || !selectedClass || !selectedSubject}>
-          {isSaving ? (
-            <>
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            <>
-              <Save className="h-4 w-4 mr-2" />
-              {t("save")}
-            </>
-          )}
-        </Button>
+        {isTeacher && (
+          <Button onClick={handleSave} disabled={isSaving || !selectedExam || !selectedClass || !selectedSubject}>
+            {isSaving ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                {t("save")}
+              </>
+            )}
+          </Button>
+        )}
       </div>
 
       {/* Error/Success Messages */}
@@ -917,12 +921,13 @@ export default function MarksPage() {
         </Alert>
       )}
 
-      <Tabs defaultValue="enter" className="space-y-4">
+      <Tabs defaultValue={isAdmin ? "view" : "enter"} className="space-y-4">
         <TabsList>
-          <TabsTrigger value="enter">{t("enterMarks")}</TabsTrigger>
+          {isTeacher && <TabsTrigger value="enter">{t("enterMarks")}</TabsTrigger>}
           <TabsTrigger value="view">{t("viewMarks")}</TabsTrigger>
         </TabsList>
 
+        {isTeacher && (
         <TabsContent value="enter" className="space-y-4">
           {/* Filters */}
           <Card>
@@ -1105,6 +1110,7 @@ export default function MarksPage() {
             </Card>
           )}
         </TabsContent>
+        )}
 
         <TabsContent value="view" className="space-y-4">
           {/* Filters for View Marks */}

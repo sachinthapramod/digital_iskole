@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticateToken } from '../middleware/auth.middleware';
-import { requireTeacher, requireAdminOrTeacher } from '../middleware/role.middleware';
+import { requireAdminOrTeacher } from '../middleware/role.middleware';
 import { uploadRateLimiter } from '../middleware/rateLimit.middleware';
 import { uploadSingle } from '../middleware/upload.middleware';
 
@@ -13,7 +13,7 @@ router.post('/profile-picture', uploadSingle, (_req, res) => {
   res.json({ message: 'Upload profile picture - to be implemented' });
 });
 
-router.post('/exam-paper', requireTeacher, uploadSingle, (_req, res) => {
+router.post('/exam-paper', requireAdminOrTeacher, uploadSingle, (_req, res) => {
   res.json({ message: 'Upload exam paper - to be implemented' });
 });
 
