@@ -163,13 +163,16 @@ export class MarksController {
         }
       }
       
-      const marks = await marksService.getStudentMarks(
+      const result = await marksService.getStudentMarks(
         id,
         examId as string | undefined,
         subjectId as string | undefined
       );
       
-      sendSuccess(res, { marks }, 'Student marks fetched successfully');
+      const payload: { marks: any[]; classRank?: number; classSize?: number } = { marks: result.marks };
+      if (result.classRank != null) payload.classRank = result.classRank;
+      if (result.classSize != null) payload.classSize = result.classSize;
+      sendSuccess(res, payload, 'Student marks fetched successfully');
     } catch (error: any) {
       logger.error('Get student marks controller error:', error);
       next(error);

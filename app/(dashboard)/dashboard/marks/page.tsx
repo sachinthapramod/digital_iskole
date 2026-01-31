@@ -321,14 +321,17 @@ export default function MarksPage() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
-  const isTeacherOrAdmin = user?.role === "teacher" || user?.role === "admin"
-  const isTeacher = user?.role === "teacher"
-  const isAdmin = user?.role === "admin"
+  const isTeacherOrAdmin = user?.role?.toLowerCase() === "teacher" || user?.role?.toLowerCase() === "admin"
+  const isTeacher = user?.role?.toLowerCase() === "teacher"
+  const isAdmin = user?.role?.toLowerCase() === "admin"
+  const isParent = user?.role?.toLowerCase() === "parent"
 
   // Parent view state
   const [parentChildren, setParentChildren] = useState<ParentChild[]>([])
   const [selectedParentChildId, setSelectedParentChildId] = useState<string>("")
   const [parentMarks, setParentMarks] = useState<ParentMark[]>([])
+  const [parentClassRank, setParentClassRank] = useState<number | null>(null)
+  const [parentClassSize, setParentClassSize] = useState<number | null>(null)
   const [selectedParentExamId, setSelectedParentExamId] = useState<string>("all")
   const [isLoadingParent, setIsLoadingParent] = useState(false)
   const [isLoadingParentMarks, setIsLoadingParentMarks] = useState(false)
@@ -350,7 +353,7 @@ export default function MarksPage() {
   }, [selectedClass, selectedExam, selectedSubject])
 
   useEffect(() => {
-    if (user?.role !== "parent") return
+    if (user?.role?.toLowerCase() !== "parent") return
 
     let cancelled = false
 
@@ -390,10 +393,12 @@ export default function MarksPage() {
   }, [user?.role])
 
   useEffect(() => {
-    if (user?.role !== "parent") return
+    if (user?.role?.toLowerCase() !== "parent") return
 
     if (!selectedParentChildId) {
       setParentMarks([])
+      setParentClassRank(null)
+      setParentClassSize(null)
       return
     }
 
@@ -418,12 +423,16 @@ export default function MarksPage() {
 
         if (!cancelled) {
           setParentMarks(marks)
+          setParentClassRank(typeof data.data?.classRank === "number" ? data.data.classRank : null)
+          setParentClassSize(typeof data.data?.classSize === "number" ? data.data.classSize : null)
           setSelectedParentExamId("all")
         }
       } catch (e: any) {
         if (!cancelled) {
           setParentError(e?.message || "Failed to load marks")
           setParentMarks([])
+          setParentClassRank(null)
+          setParentClassSize(null)
         }
       } finally {
         if (!cancelled) setIsLoadingParentMarks(false)
@@ -690,7 +699,7 @@ export default function MarksPage() {
   }
 
   // Parent view
-  if (user?.role === "parent") {
+  if (isParent) {
     const selectedChild = parentChildren.find((c) => c.id === selectedParentChildId) || null
     const selectedExamName =
       selectedParentExamId === "all"
@@ -785,8 +794,20 @@ export default function MarksPage() {
           <Card>
             <CardContent className="pt-6 text-center">
               <p className="text-sm text-muted-foreground">Class Rank</p>
-              <p className="text-3xl font-bold text-foreground">-</p>
-              <p className="text-sm text-muted-foreground">Not available</p>
+              {parentClassRank != null && parentClassSize != null && parentClassRank > 0 && parentClassSize > 0 ? (
+                <>
+                  <p className="text-3xl font-bold text-foreground">
+                    {parentClassRank}
+                    <span className="text-base font-normal text-muted-foreground">/{parentClassSize}</span>
+                  </p>
+                  <p className="text-sm text-muted-foreground">in class</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-3xl font-bold text-foreground">-</p>
+                  <p className="text-sm text-muted-foreground">No marks yet</p>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>

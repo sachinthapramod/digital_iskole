@@ -338,7 +338,7 @@ export class MarksService {
     }
   }
 
-  async getStudentMarks(studentId: string, examId?: string, subjectId?: string, limit?: number): Promise<any[]> {
+  async getStudentMarks(studentId: string, examId?: string, subjectId?: string, limit?: number): Promise<{ marks: any[]; classRank?: number; classSize?: number }> {
     try {
       // OPTIMIZED: Use Firestore ordering if index exists, otherwise fallback to in-memory sort
       let marksSnapshot;
@@ -420,11 +420,77 @@ export class MarksService {
           return dateB - dateA; // Descending order (most recent first)
         });
       }
-      
-      return marks;
+
+      // Compute class rank for parent view (same class, same exam-subject scope)
+      let classRank: number | undefined;
+      let classSize: number | undefined;
+      if (marks.length > 0) {
+        const first = marks[0];
+        const className = first.className;
+        if (className) {
+          try {
+            const rankResult = await this.computeClassRank(studentId, className, marks);
+            classRank = rankResult.classRank;
+            classSize = rankResult.classSize;
+          } catch (_) {
+            // keep undefined on error
+          }
+        }
+      }
+
+      return { marks, classRank, classSize };
     } catch (error: any) {
       logger.error('Get student marks error:', error);
       throw new ApiErrorResponse('FETCH_FAILED', 'Failed to fetch student marks', 500);
+    }
+  }
+
+  /** Compute class rank: rank by total percentage over the same (examId, subjectId) entries the student has. */
+  private async computeClassRank(
+    studentId: string,
+    className: string,
+    studentMarks: any[]
+  ): Promise<{ classRank: number; classSize: number }> {
+    try {
+      const keySet = new Set<string>();
+      const totalPossibleByKey: Record<string, number> = {};
+      for (const m of studentMarks) {
+        const key = `${m.examId}|${m.subjectId}`;
+        keySet.add(key);
+        if (totalPossibleByKey[key] == null) totalPossibleByKey[key] = m.totalMarks || 0;
+      }
+      if (keySet.size === 0) return { classRank: 0, classSize: 0 };
+
+      const classMarksSnap = await db.collection('marks')
+        .where('className', '==', className)
+        .limit(2000)
+        .get();
+
+      const studentTotals: Record<string, { obtained: number; possible: number }> = {};
+      for (const doc of classMarksSnap.docs) {
+        const d = doc.data() as any;
+        const key = `${d.examId}|${d.subjectId}`;
+        if (!keySet.has(key)) continue;
+        const sid = d.studentId;
+        if (!sid) continue;
+        if (!studentTotals[sid]) studentTotals[sid] = { obtained: 0, possible: 0 };
+        const possible = d.totalMarks || 0;
+        studentTotals[sid].obtained += d.marks ?? 0;
+        studentTotals[sid].possible += possible;
+      }
+
+      const ranked = Object.entries(studentTotals)
+        .filter(([, t]) => t.possible > 0)
+        .map(([sid, t]) => ({ studentId: sid, pct: t.obtained / t.possible }))
+        .sort((a, b) => b.pct - a.pct);
+
+      const classSize = ranked.length;
+      const idx = ranked.findIndex((r) => r.studentId === studentId);
+      const classRank = idx >= 0 ? idx + 1 : 0;
+      return { classRank, classSize };
+    } catch (err: any) {
+      logger.warn('Class rank computation failed:', err?.message);
+      return { classRank: 0, classSize: 0 };
     }
   }
 
