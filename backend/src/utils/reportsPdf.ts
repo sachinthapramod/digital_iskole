@@ -24,19 +24,37 @@ export function buildStudentReportHtml(reportData: any): { html: string; filenam
   const attendance = reportData?.attendance || {};
   const marks = reportData?.marks || {};
   const subjects: any[] = Array.isArray(marks.subjects) ? marks.subjects : [];
+  const isAnnual = reportData?.isAnnual === true && subjects.some((s: any) => s.isAnnual);
 
   const title = `${studentName} - ${reportType}${term ? ` (${term})` : ''}`;
   const filename = safeFilename(`${title}.pdf`) || `report.pdf`;
 
-  const rows = subjects
-    .map((s) => {
-      const subjectName = escapeHtml(s.subjectName || '');
-      const examName = escapeHtml(s.examName || '');
-      const marksValue = escapeHtml(s.marks ?? '');
-      const totalValue = escapeHtml(s.totalMarks ?? '');
-      const percentValue = escapeHtml(typeof s.percentage === 'number' ? `${s.percentage}%` : s.percentage ?? '');
-      const gradeValue = escapeHtml(s.grade ?? '');
-      return `<tr>
+  const rows = isAnnual
+    ? subjects.map((s) => {
+        const subjectName = escapeHtml(s.subjectName || '');
+        const t1 = s.term1Percent != null ? `${s.term1Percent}%` : '-';
+        const t2 = s.term2Percent != null ? `${s.term2Percent}%` : '-';
+        const t3 = s.term3Percent != null ? `${s.term3Percent}%` : '-';
+        const annualPct = typeof s.percentage === 'number' ? `${s.percentage}%` : '-';
+        const gradeValue = escapeHtml(s.grade ?? '');
+        return `<tr>
+          <td>${subjectName}</td>
+          <td style="text-align:right;">${escapeHtml(t1)}</td>
+          <td style="text-align:right;">${escapeHtml(t2)}</td>
+          <td style="text-align:right;">${escapeHtml(t3)}</td>
+          <td style="text-align:right;">${escapeHtml(annualPct)}</td>
+          <td style="text-align:center;">${gradeValue}</td>
+        </tr>`;
+      }).join('')
+    : subjects
+        .map((s) => {
+          const subjectName = escapeHtml(s.subjectName || '');
+          const examName = escapeHtml(s.examName || '');
+          const marksValue = escapeHtml(s.marks ?? '');
+          const totalValue = escapeHtml(s.totalMarks ?? '');
+          const percentValue = escapeHtml(typeof s.percentage === 'number' ? `${s.percentage}%` : s.percentage ?? '');
+          const gradeValue = escapeHtml(s.grade ?? '');
+          return `<tr>
         <td>${subjectName}</td>
         <td>${examName}</td>
         <td style="text-align:right;">${marksValue}</td>
@@ -44,8 +62,8 @@ export function buildStudentReportHtml(reportData: any): { html: string; filenam
         <td style="text-align:right;">${percentValue}</td>
         <td style="text-align:center;">${gradeValue}</td>
       </tr>`;
-    })
-    .join('');
+        })
+        .join('');
 
   const html = `<!doctype html>
   <html>
@@ -118,20 +136,18 @@ export function buildStudentReportHtml(reportData: any): { html: string; filenam
       </div>
 
       <div class="card" style="margin-top: 12px;">
-        <div class="label">Marks</div>
+        <div class="label">${isAnnual ? 'Marks (all three terms)' : 'Marks'}</div>
         <table>
           <thead>
             <tr>
               <th>Subject</th>
-              <th>Exam</th>
-              <th style="text-align:right;">Marks</th>
-              <th style="text-align:right;">Total</th>
-              <th style="text-align:right;">%</th>
+              ${isAnnual ? '<th style="text-align:right;">First Term %</th><th style="text-align:right;">Second Term %</th><th style="text-align:right;">Third Term %</th>' : '<th>Exam</th><th style="text-align:right;">Marks</th><th style="text-align:right;">Total</th>'}
+              <th style="text-align:right;">${isAnnual ? 'Annual %' : '%'}</th>
               <th style="text-align:center;">Grade</th>
             </tr>
           </thead>
           <tbody>
-            ${rows || `<tr><td colspan="6" style="text-align:center;color:#6b7280;">No marks available</td></tr>`}
+            ${rows || `<tr><td colspan="${isAnnual ? 6 : 6}" style="text-align:center;color:#6b7280;">No marks available</td></tr>`}
           </tbody>
         </table>
       </div>

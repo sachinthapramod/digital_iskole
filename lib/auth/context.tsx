@@ -87,10 +87,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error: any) {
       console.error('Login error:', error)
       setIsLoading(false)
+      const isNetworkError =
+        error?.name === 'TypeError' &&
+        (error?.message === 'Failed to fetch' || error?.message?.toLowerCase?.().includes('network'))
       return {
         success: false,
         error: {
-          message: error.message || 'Network error. Please try again.',
+          message: isNetworkError
+            ? 'Cannot reach the server. Make sure the backend is running (in the backend folder run: npm run dev).'
+            : error?.message || 'Network error. Please try again.',
         },
       }
     }

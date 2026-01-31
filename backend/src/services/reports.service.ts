@@ -33,6 +33,20 @@ function calculateGradeFromPercent(percent: number): string {
   return 'F';
 }
 
+/** Map examId -> 'first-term' | 'second-term' | 'third-term' for annual report aggregation */
+async function getExamIdToTermMap(): Promise<Map<string, 'first-term' | 'second-term' | 'third-term'>> {
+  const snapshot = await db.collection('exams').get();
+  const map = new Map<string, 'first-term' | 'second-term' | 'third-term'>();
+  for (const doc of snapshot.docs) {
+    const data = doc.data() as any;
+    const type = data?.type;
+    if (type === 'first-term' || type === 'second-term' || type === 'third-term') {
+      map.set(doc.id, type);
+    }
+  }
+  return map;
+}
+
 export class ReportsService {
   async listReportsForAdmin(limit: number = 50): Promise<ReportRecord[]> {
     try {
@@ -199,7 +213,7 @@ export class ReportsService {
       }
       const student = studentDoc.data() as any;
 
-      // Attendance summary
+      // Attendance summary (full year for annual, same for single term)
       const attendanceSnap = await db.collection('attendance').where('studentId', '==', params.studentId).get();
       const totalDays = attendanceSnap.size;
       const presentDays = attendanceSnap.docs.filter((d) => d.data().status === 'present').length;
@@ -207,43 +221,118 @@ export class ReportsService {
       const lateDays = attendanceSnap.docs.filter((d) => d.data().status === 'late').length;
       const attendanceRate = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 0;
 
-      // Marks summary
       const marksSnap = await db.collection('marks').where('studentId', '==', params.studentId).get();
       const marks = marksSnap.docs.map((doc) => doc.data() as any);
-      const bySubject = new Map<string, any[]>();
-      for (const m of marks) {
-        const key = m.subjectName || 'Unknown Subject';
-        const arr = bySubject.get(key) || [];
-        arr.push(m);
-        bySubject.set(key, arr);
-      }
 
-      const subjects = Array.from(bySubject.entries()).map(([subjectName, list]) => {
-        const sorted = list.slice().sort((a, b) => {
-          const aT = (a.updatedAt || a.createdAt)?.toMillis?.() || 0;
-          const bT = (b.updatedAt || b.createdAt)?.toMillis?.() || 0;
-          return bT - aT;
-        });
-        const latest = sorted[0];
-        const percent =
-          typeof latest?.percentage === 'number'
-            ? latest.percentage
-            : latest?.totalMarks
+      let subjects: any[];
+      let averagePercent: number;
+      let overallGrade: string;
+
+      if (params.term === 'Annual') {
+        // Annual report: show all 3 term columns; use term exam marks where available, else include any available marks
+        const examIdToTerm = await getExamIdToTermMap();
+        const bySubjectTerm = new Map<string, { 'first-term'?: any; 'second-term'?: any; 'third-term'?: any }>();
+        const bySubjectAll = new Map<string, any[]>();
+        for (const m of marks) {
+          const key = m.subjectName || 'Unknown Subject';
+          const arr = bySubjectAll.get(key) || [];
+          arr.push(m);
+          bySubjectAll.set(key, arr);
+          const termType = examIdToTerm.get(m.examId);
+          if (!termType) continue;
+          let entry = bySubjectTerm.get(key);
+          if (!entry) {
+            entry = {};
+            bySubjectTerm.set(key, entry);
+          }
+          const existing = entry[termType];
+          const mTime = (m.updatedAt || m.createdAt)?.toMillis?.() || 0;
+          const eTime = existing ? (existing.updatedAt || existing.createdAt)?.toMillis?.() || 0 : 0;
+          if (!existing || mTime > eTime) entry[termType] = m;
+        }
+        const subjectKeys = new Set([...bySubjectTerm.keys(), ...bySubjectAll.keys()]);
+        subjects = Array.from(subjectKeys).map((subjectName) => {
+          const entry = bySubjectTerm.get(subjectName);
+          const t1 = entry?.['first-term'];
+          const t2 = entry?.['second-term'];
+          const t3 = entry?.['third-term'];
+          const p1 = t1?.totalMarks ? Math.round((t1.marks / t1.totalMarks) * 100) : null;
+          const p2 = t2?.totalMarks ? Math.round((t2.marks / t2.totalMarks) * 100) : null;
+          const p3 = t3?.totalMarks ? Math.round((t3.marks / t3.totalMarks) * 100) : null;
+          const termPercents = [p1, p2, p3].filter((p): p is number => typeof p === 'number');
+          let annualPercent: number;
+          if (termPercents.length > 0) {
+            annualPercent = Math.round(termPercents.reduce((s, p) => s + p, 0) / termPercents.length);
+          } else {
+            // No term-test marks: use available marks (latest per subject from any exam)
+            const allMarks = bySubjectAll.get(subjectName) || [];
+            const sorted = allMarks.slice().sort((a, b) => {
+              const aT = (a.updatedAt || a.createdAt)?.toMillis?.() || 0;
+              const bT = (b.updatedAt || b.createdAt)?.toMillis?.() || 0;
+              return bT - aT;
+            });
+            const latest = sorted[0];
+            annualPercent = latest?.totalMarks
               ? Math.round((latest.marks / latest.totalMarks) * 100)
-              : 0;
-        return {
-          subjectName,
-          examName: latest?.examName || '',
-          marks: latest?.marks ?? 0,
-          totalMarks: latest?.totalMarks ?? 0,
-          percentage: percent,
-          grade: latest?.grade || calculateGradeFromPercent(percent),
-        };
-      });
-
-      const averagePercent =
-        subjects.length > 0 ? Math.round(subjects.reduce((sum, s) => sum + (s.percentage || 0), 0) / subjects.length) : 0;
-      const overallGrade = calculateGradeFromPercent(averagePercent);
+              : typeof latest?.percentage === 'number'
+                ? Math.round(latest.percentage)
+                : 0;
+          }
+          return {
+            subjectName,
+            examName: 'Annual',
+            marks: annualPercent,
+            totalMarks: 100,
+            percentage: annualPercent,
+            grade: calculateGradeFromPercent(annualPercent),
+            isAnnual: true,
+            term1Marks: t1?.marks ?? null,
+            term1Total: t1?.totalMarks ?? null,
+            term1Percent: p1 ?? null,
+            term2Marks: t2?.marks ?? null,
+            term2Total: t2?.totalMarks ?? null,
+            term2Percent: p2 ?? null,
+            term3Marks: t3?.marks ?? null,
+            term3Total: t3?.totalMarks ?? null,
+            term3Percent: p3 ?? null,
+          };
+        });
+        averagePercent = subjects.length > 0 ? Math.round(subjects.reduce((sum, s) => sum + (s.percentage || 0), 0) / subjects.length) : 0;
+        overallGrade = calculateGradeFromPercent(averagePercent);
+      } else {
+        // Single-term report (existing logic)
+        const bySubject = new Map<string, any[]>();
+        for (const m of marks) {
+          const key = m.subjectName || 'Unknown Subject';
+          const arr = bySubject.get(key) || [];
+          arr.push(m);
+          bySubject.set(key, arr);
+        }
+        subjects = Array.from(bySubject.entries()).map(([subjectName, list]) => {
+          const sorted = list.slice().sort((a, b) => {
+            const aT = (a.updatedAt || a.createdAt)?.toMillis?.() || 0;
+            const bT = (b.updatedAt || b.createdAt)?.toMillis?.() || 0;
+            return bT - aT;
+          });
+          const latest = sorted[0];
+          const percent =
+            typeof latest?.percentage === 'number'
+              ? latest.percentage
+              : latest?.totalMarks
+                ? Math.round((latest.marks / latest.totalMarks) * 100)
+                : 0;
+          return {
+            subjectName,
+            examName: latest?.examName || '',
+            marks: latest?.marks ?? 0,
+            totalMarks: latest?.totalMarks ?? 0,
+            percentage: percent,
+            grade: latest?.grade || calculateGradeFromPercent(percent),
+          };
+        });
+        averagePercent = subjects.length > 0 ? Math.round(subjects.reduce((sum, s) => sum + (s.percentage || 0), 0) / subjects.length) : 0;
+        overallGrade = calculateGradeFromPercent(averagePercent);
+      }
 
       const reportData = {
         student: {
@@ -254,6 +343,7 @@ export class ReportsService {
         },
         term: params.term || '',
         reportType: params.reportType || 'Student Report',
+        isAnnual: params.term === 'Annual',
         attendance: {
           totalDays,
           presentDays,
@@ -355,7 +445,7 @@ export class ReportsService {
         attendanceByStudent.set(sid, cur);
       }
 
-      // Marks for entire class (group by studentId, then latest per subject)
+      // Marks for entire class (group by studentId, then latest per subject or annual aggregation)
       const marksSnap = await db.collection('marks').where('className', '==', className).get();
       const marksByStudent = new Map<string, any[]>();
       for (const doc of marksSnap.docs) {
@@ -367,38 +457,99 @@ export class ReportsService {
         marksByStudent.set(sid, arr);
       }
 
+      const isAnnual = params.term === 'Annual';
+      const examIdToTerm = isAnnual ? await getExamIdToTermMap() : null;
+
       const studentSummaries = students.map((s) => {
         const att = attendanceByStudent.get(s.id) || { total: 0, present: 0, absent: 0, late: 0 };
         const attendanceRate = att.total > 0 ? Math.round((att.present / att.total) * 100) : 0;
 
         const marks = marksByStudent.get(s.id) || [];
-        const bySubject = new Map<string, any[]>();
-        for (const m of marks) {
-          const key = m.subjectId || m.subjectName || 'Unknown Subject';
-          const arr = bySubject.get(key) || [];
-          arr.push(m);
-          bySubject.set(key, arr);
-        }
-        const latestPerSubject = Array.from(bySubject.values()).map((list) => {
-          const sorted = list.slice().sort((a, b) => {
-            const aT = (a.updatedAt || a.createdAt)?.toMillis?.() || 0;
-            const bT = (b.updatedAt || b.createdAt)?.toMillis?.() || 0;
-            return bT - aT;
+        let averagePercent: number;
+        let overallGrade: string;
+        let subjectsCount: number;
+
+        if (isAnnual && examIdToTerm) {
+          const bySubjectTerm = new Map<string, { 'first-term'?: any; 'second-term'?: any; 'third-term'?: any }>();
+          for (const m of marks) {
+            const termType = examIdToTerm.get(m.examId);
+            if (!termType) continue;
+            const key = m.subjectName || 'Unknown Subject';
+            let entry = bySubjectTerm.get(key);
+            if (!entry) {
+              entry = {};
+              bySubjectTerm.set(key, entry);
+            }
+            const existing = entry[termType];
+            const mTime = (m.updatedAt || m.createdAt)?.toMillis?.() || 0;
+            const eTime = existing ? (existing.updatedAt || existing.createdAt)?.toMillis?.() || 0 : 0;
+            if (!existing || mTime > eTime) entry[termType] = m;
+          }
+          const percents: number[] = [];
+          for (const [, entry] of bySubjectTerm) {
+            const p1 = entry['first-term']?.totalMarks ? Math.round((entry['first-term'].marks / entry['first-term'].totalMarks) * 100) : null;
+            const p2 = entry['second-term']?.totalMarks ? Math.round((entry['second-term'].marks / entry['second-term'].totalMarks) * 100) : null;
+            const p3 = entry['third-term']?.totalMarks ? Math.round((entry['third-term'].marks / entry['third-term'].totalMarks) * 100) : null;
+            const termPercents = [p1, p2, p3].filter((p): p is number => typeof p === 'number');
+            if (termPercents.length > 0) percents.push(Math.round(termPercents.reduce((a, b) => a + b, 0) / termPercents.length));
+          }
+          if (percents.length === 0) {
+            // No term-test marks: use available marks (latest per subject from any exam)
+            const bySubjectAll = new Map<string, any[]>();
+            for (const m of marks) {
+              const key = m.subjectName || m.subjectId || 'Unknown Subject';
+              const arr = bySubjectAll.get(key) || [];
+              arr.push(m);
+              bySubjectAll.set(key, arr);
+            }
+            for (const list of bySubjectAll.values()) {
+              const sorted = list.slice().sort((a, b) => {
+                const aT = (a.updatedAt || a.createdAt)?.toMillis?.() || 0;
+                const bT = (b.updatedAt || b.createdAt)?.toMillis?.() || 0;
+                return bT - aT;
+              });
+              const latest = sorted[0];
+              const p = latest?.totalMarks
+                ? Math.round((latest.marks / latest.totalMarks) * 100)
+                : typeof latest?.percentage === 'number'
+                  ? Math.round(latest.percentage)
+                  : 0;
+              percents.push(p);
+            }
+          }
+          subjectsCount = percents.length;
+          averagePercent = percents.length > 0 ? Math.round(percents.reduce((sum, p) => sum + p, 0) / percents.length) : 0;
+          overallGrade = calculateGradeFromPercent(averagePercent);
+        } else {
+          const bySubject = new Map<string, any[]>();
+          for (const m of marks) {
+            const key = m.subjectId || m.subjectName || 'Unknown Subject';
+            const arr = bySubject.get(key) || [];
+            arr.push(m);
+            bySubject.set(key, arr);
+          }
+          const latestPerSubject = Array.from(bySubject.values()).map((list) => {
+            const sorted = list.slice().sort((a, b) => {
+              const aT = (a.updatedAt || a.createdAt)?.toMillis?.() || 0;
+              const bT = (b.updatedAt || b.createdAt)?.toMillis?.() || 0;
+              return bT - aT;
+            });
+            return sorted[0];
           });
-          return sorted[0];
-        });
-        const percentages = latestPerSubject
-          .map((m) => (typeof m?.percentage === 'number' ? m.percentage : 0))
-          .filter((p) => typeof p === 'number');
-        const averagePercent = percentages.length > 0 ? Math.round(percentages.reduce((sum, p) => sum + p, 0) / percentages.length) : 0;
-        const overallGrade = calculateGradeFromPercent(averagePercent);
+          const percentages = latestPerSubject
+            .map((m) => (typeof m?.percentage === 'number' ? m.percentage : 0))
+            .filter((p) => typeof p === 'number');
+          subjectsCount = latestPerSubject.length;
+          averagePercent = percentages.length > 0 ? Math.round(percentages.reduce((sum, p) => sum + p, 0) / percentages.length) : 0;
+          overallGrade = calculateGradeFromPercent(averagePercent);
+        }
 
         return {
           studentId: s.id,
           studentName: s.name,
           rollNo: s.rollNo,
           attendance: { ...att, attendanceRate },
-          marks: { averagePercent, overallGrade, subjectsCount: latestPerSubject.length },
+          marks: { averagePercent, overallGrade, subjectsCount },
         };
       });
 
@@ -426,6 +577,7 @@ export class ReportsService {
         },
         term: params.term || '',
         reportType: params.reportType || 'Term Report',
+        isAnnual: isAnnual,
         summary: {
           classAttendanceRate,
           classAverageMarks,
@@ -524,7 +676,7 @@ export class ReportsService {
         attendanceByClass.set(cn, cur);
       }
 
-      // Marks: build per-student average (latest per subject)
+      // Marks: build per-student average (latest per subject or annual aggregation)
       const marksByStudent = new Map<string, any[]>();
       for (const doc of marksSnap.docs) {
         const m = doc.data() as any;
@@ -535,27 +687,82 @@ export class ReportsService {
         marksByStudent.set(sid, arr);
       }
 
+      const isAnnual = params.term === 'Annual';
+      const examIdToTerm = isAnnual ? await getExamIdToTermMap() : null;
+
       const studentAverages: Array<{ studentId: string; name: string; className: string; averagePercent: number }> = [];
       for (const [studentId, list] of marksByStudent.entries()) {
         const meta = studentMeta.get(studentId);
         if (!meta) continue; // ignore marks for non-active/unknown students
-        const bySubject = new Map<string, any[]>();
-        for (const m of list) {
-          const key = m.subjectId || m.subjectName || 'Unknown Subject';
-          const arr = bySubject.get(key) || [];
-          arr.push(m);
-          bySubject.set(key, arr);
-        }
-        const latest = Array.from(bySubject.values()).map((arr) => {
-          const sorted = arr.slice().sort((a, b) => {
-            const aT = (a.updatedAt || a.createdAt)?.toMillis?.() || 0;
-            const bT = (b.updatedAt || b.createdAt)?.toMillis?.() || 0;
-            return bT - aT;
+        let avg: number;
+        if (isAnnual && examIdToTerm) {
+          const bySubjectTerm = new Map<string, { 'first-term'?: any; 'second-term'?: any; 'third-term'?: any }>();
+          for (const m of list) {
+            const termType = examIdToTerm.get(m.examId);
+            if (!termType) continue;
+            const key = m.subjectName || 'Unknown Subject';
+            let entry = bySubjectTerm.get(key);
+            if (!entry) {
+              entry = {};
+              bySubjectTerm.set(key, entry);
+            }
+            const existing = entry[termType];
+            const mTime = (m.updatedAt || m.createdAt)?.toMillis?.() || 0;
+            const eTime = existing ? (existing.updatedAt || existing.createdAt)?.toMillis?.() || 0 : 0;
+            if (!existing || mTime > eTime) entry[termType] = m;
+          }
+          const percents: number[] = [];
+          for (const [, entry] of bySubjectTerm) {
+            const p1 = entry['first-term']?.totalMarks ? Math.round((entry['first-term'].marks / entry['first-term'].totalMarks) * 100) : null;
+            const p2 = entry['second-term']?.totalMarks ? Math.round((entry['second-term'].marks / entry['second-term'].totalMarks) * 100) : null;
+            const p3 = entry['third-term']?.totalMarks ? Math.round((entry['third-term'].marks / entry['third-term'].totalMarks) * 100) : null;
+            const termPercents = [p1, p2, p3].filter((p): p is number => typeof p === 'number');
+            if (termPercents.length > 0) percents.push(Math.round(termPercents.reduce((a, b) => a + b, 0) / termPercents.length));
+          }
+          if (percents.length === 0) {
+            // No term-test marks: use available marks (latest per subject from any exam)
+            const bySubjectAll = new Map<string, any[]>();
+            for (const m of list) {
+              const key = m.subjectName || m.subjectId || 'Unknown Subject';
+              const arr = bySubjectAll.get(key) || [];
+              arr.push(m);
+              bySubjectAll.set(key, arr);
+            }
+            for (const arr of bySubjectAll.values()) {
+              const sorted = arr.slice().sort((a, b) => {
+                const aT = (a.updatedAt || a.createdAt)?.toMillis?.() || 0;
+                const bT = (b.updatedAt || b.createdAt)?.toMillis?.() || 0;
+                return bT - aT;
+              });
+              const latest = sorted[0];
+              const p = latest?.totalMarks
+                ? Math.round((latest.marks / latest.totalMarks) * 100)
+                : typeof latest?.percentage === 'number'
+                  ? Math.round(latest.percentage)
+                  : 0;
+              percents.push(p);
+            }
+          }
+          avg = percents.length > 0 ? Math.round(percents.reduce((sum, p) => sum + p, 0) / percents.length) : 0;
+        } else {
+          const bySubject = new Map<string, any[]>();
+          for (const m of list) {
+            const key = m.subjectId || m.subjectName || 'Unknown Subject';
+            const arr = bySubject.get(key) || [];
+            arr.push(m);
+            bySubject.set(key, arr);
+          }
+          const latest = Array.from(bySubject.values()).map((arr) => {
+            const sorted = arr.slice().sort((a, b) => {
+              const aT = (a.updatedAt || a.createdAt)?.toMillis?.() || 0;
+              const bT = (b.updatedAt || b.createdAt)?.toMillis?.() || 0;
+              return bT - aT;
+            });
+            return sorted[0];
           });
-          return sorted[0];
-        });
-        const percents = latest.map((m) => (typeof m?.percentage === 'number' ? m.percentage : 0)).filter((p) => typeof p === 'number');
-        const avg = percents.length > 0 ? Math.round(percents.reduce((sum, p) => sum + p, 0) / percents.length) : 0;
+          const percents = latest.map((m) => (typeof m?.percentage === 'number' ? m.percentage : 0)).filter((p) => typeof p === 'number');
+          avg = percents.length > 0 ? Math.round(percents.reduce((sum, p) => sum + p, 0) / percents.length) : 0;
+        }
         studentAverages.push({ studentId, name: meta.name, className: meta.className, averagePercent: avg });
       }
 
@@ -587,6 +794,7 @@ export class ReportsService {
       const reportData = {
         term: params.term || '',
         reportType: params.reportType || 'School Report',
+        isAnnual: isAnnual,
         summary: {
           totalStudents: activeStudents.length,
           totalClasses: classes.length,

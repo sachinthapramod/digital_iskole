@@ -132,6 +132,16 @@ function AdminReportsReal() {
     []
   )
 
+  const termOptions = useMemo(
+    () => [
+      { value: "First Term", labelKey: "firstTerm" as const },
+      { value: "Second Term", labelKey: "secondTerm" as const },
+      { value: "Third Term", labelKey: "thirdTerm" as const },
+      { value: "Annual", labelKey: "annual" as const },
+    ],
+    []
+  )
+
   const selectedClass = useMemo(
     () => classes.find((c) => c.id === selectedClassId) || null,
     [classes, selectedClassId]
@@ -385,9 +395,11 @@ function AdminReportsReal() {
                       <SelectValue placeholder="Select term" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="First Term">First Term</SelectItem>
-                      <SelectItem value="Second Term">Second Term</SelectItem>
-                      <SelectItem value="Third Term">Third Term</SelectItem>
+                      {termOptions.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {t(opt.labelKey)}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -447,9 +459,11 @@ function AdminReportsReal() {
                       <SelectValue placeholder="Select term" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="First Term">First Term</SelectItem>
-                      <SelectItem value="Second Term">Second Term</SelectItem>
-                      <SelectItem value="Third Term">Third Term</SelectItem>
+                      {termOptions.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {t(opt.labelKey)}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -492,9 +506,11 @@ function AdminReportsReal() {
                       <SelectValue placeholder="Select term" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="First Term">First Term</SelectItem>
-                      <SelectItem value="Second Term">Second Term</SelectItem>
-                      <SelectItem value="Third Term">Third Term</SelectItem>
+                      {termOptions.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {t(opt.labelKey)}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -2011,8 +2027,8 @@ export default function ReportsPage() {
   const { t } = useLanguage()
   const { user } = useAuth()
 
-  // Admin reports: use real backend-powered UI
-  if (user?.role === "admin") {
+  // Admin reports: use real backend-powered UI (normalize role for "Admin" vs "admin")
+  if (user?.role?.toLowerCase() === "admin") {
     return <AdminReportsReal />
   }
 
@@ -2870,7 +2886,7 @@ export default function ReportsPage() {
                         <SelectItem value="First Term">{t("firstTerm")}</SelectItem>
                         <SelectItem value="Second Term">{t("secondTerm")}</SelectItem>
                         <SelectItem value="Third Term">{t("thirdTerm")}</SelectItem>
-                        <SelectItem value="Annual">Annual</SelectItem>
+                        <SelectItem value="Annual">{t("annual")}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -2972,7 +2988,7 @@ export default function ReportsPage() {
                         <SelectItem value="First Term">{t("firstTerm")}</SelectItem>
                         <SelectItem value="Second Term">{t("secondTerm")}</SelectItem>
                         <SelectItem value="Third Term">{t("thirdTerm")}</SelectItem>
-                        <SelectItem value="Annual">Annual</SelectItem>
+                        <SelectItem value="Annual">{t("annual")}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -3046,7 +3062,7 @@ export default function ReportsPage() {
                         <SelectItem value="First Term">{t("firstTerm")}</SelectItem>
                         <SelectItem value="Second Term">{t("secondTerm")}</SelectItem>
                         <SelectItem value="Third Term">{t("thirdTerm")}</SelectItem>
-                        <SelectItem value="Annual">Annual</SelectItem>
+                        <SelectItem value="Annual">{t("annual")}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -3328,7 +3344,7 @@ export default function ReportsPage() {
                         <SelectItem value="First Term">{t("firstTerm")}</SelectItem>
                         <SelectItem value="Second Term">{t("secondTerm")}</SelectItem>
                         <SelectItem value="Third Term">{t("thirdTerm")}</SelectItem>
-                        <SelectItem value="Annual">Annual</SelectItem>
+                        <SelectItem value="Annual">{t("annual")}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -3425,7 +3441,7 @@ export default function ReportsPage() {
                         <SelectItem value="First Term">{t("firstTerm")}</SelectItem>
                         <SelectItem value="Second Term">{t("secondTerm")}</SelectItem>
                         <SelectItem value="Third Term">{t("thirdTerm")}</SelectItem>
-                        <SelectItem value="Annual">Annual</SelectItem>
+                        <SelectItem value="Annual">{t("annual")}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -3880,6 +3896,7 @@ export default function ReportsPage() {
                           <SelectItem value="First Term">{t("firstTerm")}</SelectItem>
                           <SelectItem value="Second Term">{t("secondTerm")}</SelectItem>
                           <SelectItem value="Third Term">{t("thirdTerm")}</SelectItem>
+                          <SelectItem value="Annual">{t("annual")}</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
