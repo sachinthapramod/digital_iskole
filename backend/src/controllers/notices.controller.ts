@@ -43,14 +43,15 @@ export class NoticesController {
         return;
       }
 
+      const role = (req.user.role || 'teacher').toString().toLowerCase();
       const notice = await noticesService.createNotice({
         title,
         content,
         priority,
         target,
         authorId: req.user.uid,
-        authorName: req.user.email || 'Unknown',
-        authorRole: req.user.role === 'admin' ? 'admin' : 'teacher',
+        authorName: (req.user as any).email || (role === 'admin' ? 'Admin' : 'Teacher'),
+        authorRole: role === 'admin' ? 'admin' : 'teacher',
         expiresAt,
       });
       
@@ -63,9 +64,20 @@ export class NoticesController {
 
   async updateNotice(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
+      if (!req.user) {
+        sendError(res, 'AUTH_UNAUTHORIZED', 'User not authenticated', 401);
+        return;
+      }
       const { id } = req.params;
       const { title, content, priority, target, expiresAt } = req.body;
-      
+      const role = (req.user.role || '').toString().toLowerCase();
+      if (role === 'teacher') {
+        const existing = await noticesService.getNotice(id);
+        if (existing.authorId !== req.user.uid) {
+          sendError(res, 'AUTH_UNAUTHORIZED', 'You can only update your own notices', 403);
+          return;
+        }
+      }
       const notice = await noticesService.updateNotice(id, {
         title,
         content,
@@ -73,7 +85,6 @@ export class NoticesController {
         target,
         expiresAt,
       });
-      
       sendSuccess(res, { notice }, 'Notice updated successfully');
     } catch (error: any) {
       logger.error('Update notice controller error:', error);
@@ -83,7 +94,19 @@ export class NoticesController {
 
   async deleteNotice(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
+      if (!req.user) {
+        sendError(res, 'AUTH_UNAUTHORIZED', 'User not authenticated', 401);
+        return;
+      }
       const { id } = req.params;
+      const role = (req.user.role || '').toString().toLowerCase();
+      if (role === 'teacher') {
+        const existing = await noticesService.getNotice(id);
+        if (existing.authorId !== req.user.uid) {
+          sendError(res, 'AUTH_UNAUTHORIZED', 'You can only delete your own notices', 403);
+          return;
+        }
+      }
       await noticesService.deleteNotice(id);
       sendSuccess(res, {}, 'Notice deleted successfully');
     } catch (error: any) {

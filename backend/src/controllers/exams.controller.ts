@@ -42,6 +42,8 @@ export class ExamsController {
         return;
       }
 
+      const createdByRole = (req.user.role || 'teacher').toString().toLowerCase() as 'admin' | 'teacher';
+      const createdByName = (req.user as any).email || (req.user as any).name || (createdByRole === 'admin' ? 'Admin' : 'Teacher');
       const exam = await examsService.createExam({
         name,
         type,
@@ -50,6 +52,8 @@ export class ExamsController {
         grades: grades || [],
         description,
         createdBy: req.user.uid,
+        createdByName,
+        createdByRole,
       });
       
       sendSuccess(res, { exam }, 'Exam created successfully', 201);

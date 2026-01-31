@@ -31,6 +31,8 @@ interface Exam {
   endDate: string
   grades: string[]
   status: "upcoming" | "ongoing" | "completed"
+  createdByName?: string
+  createdByRole?: string
 }
 
 export default function ExamsPage() {
@@ -55,8 +57,9 @@ export default function ExamsPage() {
   })
   const [selectedGrade, setSelectedGrade] = useState("")
 
-  const isAdmin = user?.role === "admin"
+  const isAdmin = user?.role?.toLowerCase() === "admin"
   const canView = user?.role === "admin" || user?.role === "teacher"
+  const canManageExams = isAdmin || user?.role?.toLowerCase() === "teacher"
 
   // Static list of grades from 6 to 13
   const availableGrades = Array.from({ length: 8 }, (_, i) => `Grade ${i + 6}`)
@@ -323,10 +326,10 @@ export default function ExamsPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">{t("exams")}</h1>
           <p className="text-muted-foreground">
-            {isAdmin ? "Manage examinations and assessments" : "View examinations and assessments (read-only)"}
+            {canManageExams ? "Manage examinations and assessments" : "View examinations and assessments (read-only)"}
           </p>
         </div>
-        {isAdmin ? (
+        {canManageExams ? (
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button>
@@ -482,7 +485,7 @@ export default function ExamsPage() {
       <Card>
         <CardHeader>
           <CardTitle>All Examinations</CardTitle>
-          <CardDescription>{isAdmin ? "View and manage all scheduled examinations" : "View all scheduled examinations"}</CardDescription>
+          <CardDescription>{canManageExams ? "View and manage all scheduled examinations" : "View all scheduled examinations"}</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -527,12 +530,17 @@ export default function ExamsPage() {
                                 </Badge>
                               ))}
                             </div>
+                            {(exam.createdByName || exam.createdByRole) && (
+                              <p className="text-xs text-muted-foreground mt-2">
+                                Created by {exam.createdByName || "—"} ({exam.createdByRole ? exam.createdByRole.charAt(0).toUpperCase() + exam.createdByRole.slice(1) : "—"})
+                              </p>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
                           {getTypeBadge(exam.type)}
                           {getStatusBadge(exam.status)}
-                          {isAdmin ? (
+                          {canManageExams ? (
                             <>
                               <Button size="sm" variant="outline" onClick={() => handleEditExam(exam)}>
                                 <Edit className="h-4 w-4" />
@@ -562,7 +570,7 @@ export default function ExamsPage() {
       </Card>
 
       {/* Edit Dialog */}
-      {isAdmin ? (
+      {canManageExams ? (
         <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
           <DialogContent>
             <DialogHeader>

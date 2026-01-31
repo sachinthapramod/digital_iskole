@@ -132,6 +132,8 @@ export const translations = {
     noticeContent: "Content",
     noticeTarget: "Target Audience",
     allUsers: "All Users",
+    allTeachers: "All Teachers",
+    allParents: "All Parents",
     publishDate: "Publish Date",
 
     // Settings
@@ -348,6 +350,8 @@ export const translations = {
     noticeContent: "අන්තර්ගතය",
     noticeTarget: "ඉලක්ක පාඨකයින්",
     allUsers: "සියලුම පරිශීලකයින්",
+    allTeachers: "සියලු ගුරුවරුන්",
+    allParents: "සියලු දෙමව්පියන්",
     publishDate: "ප්‍රකාශන දිනය",
 
     // Settings
@@ -564,6 +568,8 @@ export const translations = {
     noticeContent: "உள்ளடக்கம்",
     noticeTarget: "இலக்கு பார்வையாளர்கள்",
     allUsers: "அனைத்து பயனர்களும்",
+    allTeachers: "அனைத்து ஆசிரியர்கள்",
+    allParents: "அனைத்து பெற்றோர்",
     publishDate: "வெளியிடும் தேதி",
 
     // Settings

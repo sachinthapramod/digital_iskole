@@ -29,6 +29,7 @@ interface Notice {
   content: string
   target: string
   author: string
+  authorId?: string
   date: string
   priority: string
 }
@@ -54,8 +55,9 @@ export default function NoticesPage() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
-  const canCreateNotice = user?.role === "admin"
-  const isAdmin = user?.role === "admin"
+  const isAdmin = user?.role?.toLowerCase() === "admin"
+  const isTeacher = user?.role?.toLowerCase() === "teacher"
+  const canCreateNotice = isAdmin || isTeacher
 
   useEffect(() => {
     fetchNotices()
@@ -93,12 +95,14 @@ export default function NoticesPage() {
       notice.content.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesTarget = filterTarget === "all" || notice.target === filterTarget || notice.target === "all"
 
-    // Filter based on user role
-    if (user?.role === "teacher") {
-      return matchesSearch && (notice.target === "all" || notice.target === "teachers")
+    // Filter based on user role (use toLowerCase for consistent casing)
+    if (isTeacher) {
+      const visibleToTeacher = notice.target === "all" || notice.target === "teachers" || notice.target === "parents" || notice.target === "students"
+      return matchesSearch && (filterTarget === "all" ? visibleToTeacher : notice.target === filterTarget) && visibleToTeacher
     }
-    if (user?.role === "parent") {
-      return matchesSearch && (notice.target === "all" || notice.target === "parents")
+    if (user?.role?.toLowerCase() === "parent") {
+      const visibleToParent = notice.target === "all" || notice.target === "parents"
+      return matchesSearch && (filterTarget === "all" ? visibleToParent : notice.target === filterTarget) && visibleToParent
     }
     return matchesSearch && matchesTarget
   })
@@ -247,24 +251,30 @@ export default function NoticesPage() {
   }
 
   const getTargetOptions = () => {
-    if (user?.role === "admin") {
+    if (isAdmin) {
       return [
         { value: "all", label: t("allUsers") },
-        { value: "teachers", label: `${t("teachers")} Only` },
-        { value: "parents", label: `${t("parents")} Only` },
-        { value: "students", label: `${t("students")} Only` },
+        { value: "teachers", label: t("allTeachers") },
+        { value: "parents", label: t("allParents") },
+        { value: "students", label: t("students") },
       ]
     }
-    // Teachers can only send notices to their students and their parents
-    return [
-      { value: "students", label: "My Class Students" },
-      { value: "parents", label: "Class Parents" },
-    ]
+    // Teachers can send to all teachers, all parents, or students (parents get notified)
+    if (isTeacher) {
+      return [
+        { value: "teachers", label: t("allTeachers") },
+        { value: "parents", label: t("allParents") },
+        { value: "students", label: "My Class Students" },
+      ]
+    }
+    return []
   }
 
   const canModifyNotice = (notice: Notice) => {
-    // Only admins can modify notices
-    return user?.role === "admin"
+    // Admin can modify any notice; teacher can only modify their own
+    if (isAdmin) return true
+    if (isTeacher && notice.authorId && user?.id) return notice.authorId === user.id
+    return false
   }
 
   return (
@@ -400,7 +410,7 @@ export default function NoticesPage() {
                 />
               </div>
             </div>
-            {isAdmin && (
+            {(isAdmin || isTeacher) && (
               <div className="space-y-2">
                 <Label>{t("filter")}</Label>
                 <Select value={filterTarget} onValueChange={setFilterTarget}>
@@ -409,8 +419,9 @@ export default function NoticesPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Notices</SelectItem>
-                    <SelectItem value="teachers">{t("teachers")} Only</SelectItem>
-                    <SelectItem value="parents">{t("parents")} Only</SelectItem>
+                    <SelectItem value="teachers">{t("allTeachers")}</SelectItem>
+                    <SelectItem value="parents">{t("allParents")}</SelectItem>
+                    <SelectItem value="students">{t("students")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

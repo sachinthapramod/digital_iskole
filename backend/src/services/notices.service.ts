@@ -168,19 +168,18 @@ export class NoticesService {
             })
             .map(doc => doc.id);
         } else {
-          // Get users by role
-          const roleMap: Record<string, string> = {
-            'teachers': 'teacher',
-            'parents': 'parent',
-            'students': 'parent', // Students don't have accounts, notify their parents
+          // Get users by role (query with 'in' to handle both lowercase and capitalized role values)
+          const roleMap: Record<string, string[]> = {
+            'teachers': ['teacher', 'Teacher'],
+            'parents': ['parent', 'Parent'],
+            'students': ['parent', 'Parent'], // Students don't have accounts, notify their parents
           };
           
           for (const audience of targetAudiences) {
-            const role = roleMap[audience];
-            if (role) {
-              // Query by role only (avoids composite index), then filter active in memory
+            const roleVariants = roleMap[audience];
+            if (roleVariants) {
               const usersSnapshot = await db.collection('users')
-                .where('role', '==', role)
+                .where('role', 'in', roleVariants)
                 .get();
               userIds.push(
                 ...usersSnapshot.docs

@@ -14,6 +14,8 @@ interface ExamData {
   grades: string[];
   description?: string;
   createdBy: string;
+  createdByName?: string;
+  createdByRole?: 'admin' | 'teacher';
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -52,6 +54,9 @@ export class ExamsService {
           endDate: endDate ? endDate.toDate().toISOString().split('T')[0] : '',
           grades: examData.grades || [],
           status,
+          createdBy: examData.createdBy || '',
+          createdByName: examData.createdByName || '',
+          createdByRole: examData.createdByRole || '',
         });
       }
       
@@ -89,6 +94,9 @@ export class ExamsService {
         endDate: endDate ? endDate.toDate().toISOString().split('T')[0] : '',
         grades: examData.grades || [],
         description: examData.description || '',
+        createdBy: examData.createdBy || '',
+        createdByName: examData.createdByName || '',
+        createdByRole: examData.createdByRole || '',
       };
     } catch (error: any) {
       logger.error('Get exam error:', error);
@@ -107,6 +115,8 @@ export class ExamsService {
     grades: string[];
     description?: string;
     createdBy: string;
+    createdByName?: string;
+    createdByRole?: 'admin' | 'teacher';
   }): Promise<any> {
     try {
       // Validate dates
@@ -135,6 +145,8 @@ export class ExamsService {
         grades: data.grades || [],
         description: data.description || '',
         createdBy: data.createdBy,
+        createdByName: data.createdByName || '',
+        createdByRole: data.createdByRole || 'teacher',
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
       };
@@ -175,6 +187,9 @@ export class ExamsService {
         endDate: data.endDate,
         grades: examData.grades,
         description: examData.description,
+        createdBy: examData.createdBy,
+        createdByName: examData.createdByName,
+        createdByRole: examData.createdByRole,
       };
     } catch (error: any) {
       logger.error('Create exam error:', error);
