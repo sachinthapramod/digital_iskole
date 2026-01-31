@@ -94,6 +94,32 @@ export class MarksController {
     }
   }
 
+  async getClassProgressStats(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { className } = req.query;
+      if (!className || typeof className !== 'string') {
+        sendError(res, 'VALIDATION_ERROR', 'className query parameter is required', 400);
+        return;
+      }
+      if (req.user?.role === 'teacher') {
+        const { db } = await import('../config/firebase');
+        const teacherSnap = await db.collection('teachers').where('userId', '==', req.user.uid).limit(1).get();
+        if (!teacherSnap.empty) {
+          const assignedClass = teacherSnap.docs[0].data()?.assignedClass;
+          if (assignedClass && assignedClass !== className) {
+            sendError(res, 'AUTH_UNAUTHORIZED', 'You can only view stats for your assigned class', 403);
+            return;
+          }
+        }
+      }
+      const stats = await marksService.getClassProgressStats(className);
+      sendSuccess(res, { stats }, 'Class progress stats fetched successfully');
+    } catch (error: any) {
+      logger.error('Get class progress stats controller error:', error);
+      next(error);
+    }
+  }
+
   async getStudentMarks(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;

@@ -25,24 +25,11 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 
-const progressStats = {
-  classAverage: 72.5,
-  previousAverage: 68.2,
-  attendanceRate: 94.5,
-  previousAttendance: 92.1,
-  passRate: 88,
-  previousPassRate: 85,
-  subjectPerformance: [
-    { subject: "Mathematics", average: 75, previousAverage: 70 },
-    { subject: "Science", average: 72, previousAverage: 74 },
-    { subject: "English", average: 68, previousAverage: 65 },
-    { subject: "History", average: 78, previousAverage: 76 },
-  ],
-  topPerformers: [
-    { name: "Nimali Silva", marks: 92, trend: "up" },
-    { name: "Kasun Perera", marks: 88, trend: "up" },
-    { name: "Dinesh Kumar", marks: 85, trend: "same" },
-  ],
+interface ClassProgressStats {
+  classAverage: number
+  passRate: number
+  subjectPerformance: Array<{ subject: string; average: number }>
+  topPerformers: Array<{ name: string; marks: number }>
 }
 
 interface NoticeApi {
@@ -83,11 +70,14 @@ export function TeacherDashboard() {
   const [todayAttendance, setTodayAttendance] = useState<Record<string, "present" | "absent" | "late">>({})
   const [notices, setNotices] = useState<NoticeApi[]>([])
   const [isLoadingNotices, setIsLoadingNotices] = useState(true)
-  
+  const [progressStats, setProgressStats] = useState<ClassProgressStats | null>(null)
+  const [isLoadingProgress, setIsLoadingProgress] = useState(false)
+
   useEffect(() => {
     if (user?.assignedClass) {
       fetchClassStudents()
       fetchTodayAttendance()
+      fetchClassProgressStats()
     }
     fetchNotices()
   }, [user?.assignedClass])
@@ -127,6 +117,20 @@ export function TeacherDashboard() {
       }
     } catch (err: any) {
       console.error('Fetch today attendance error:', err)
+    }
+  }
+
+  const fetchClassProgressStats = async () => {
+    if (!user?.assignedClass) return
+    try {
+      setIsLoadingProgress(true)
+      const data = await apiGetJson(`/marks/class-stats?className=${encodeURIComponent(user.assignedClass)}`)
+      setProgressStats(data.data?.stats ?? null)
+    } catch (err: any) {
+      console.error("Fetch class progress stats error:", err)
+      setProgressStats(null)
+    } finally {
+      setIsLoadingProgress(false)
     }
   }
 
@@ -252,7 +256,12 @@ export function TeacherDashboard() {
               : `${Math.round((Object.values(todayAttendance).filter(s => s === "present").length / classStudents.length) * 100)}% present`
           } 
         />
-        <StatsCard title="Class Average" value="72.5%" icon={TrendingUp} description="+4.3% from last term" />
+        <StatsCard
+          title="Class Average"
+          value={isLoadingProgress ? "..." : progressStats ? `${progressStats.classAverage}%` : "—"}
+          icon={TrendingUp}
+          description={progressStats ? "From class marks" : "No marks yet"}
+        />
         <StatsCard title={t("appointments")} value="2" icon={Calendar} description="Scheduled today" />
       </div>
 
@@ -266,80 +275,76 @@ export function TeacherDashboard() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 sm:space-y-6">
-            {/* Key Metrics */}
-            <div className="grid grid-cols-3 gap-2 sm:gap-4">
-              <div className="text-center p-2 sm:p-3 rounded-lg bg-muted/50">
-                <div className="flex items-center justify-center gap-1 mb-1">
-                  <span className="text-lg sm:text-2xl font-bold text-foreground">{progressStats.classAverage}%</span>
-                  {getTrendIcon(progressStats.classAverage, progressStats.previousAverage)}
-                </div>
-                <p className="text-xs text-muted-foreground">Class Avg</p>
-                <p className="text-xs text-success hidden sm:block">
-                  {getTrendText(progressStats.classAverage, progressStats.previousAverage)}
-                </p>
+            {isLoadingProgress ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               </div>
-              <div className="text-center p-2 sm:p-3 rounded-lg bg-muted/50">
-                <div className="flex items-center justify-center gap-1 mb-1">
-                  <span className="text-lg sm:text-2xl font-bold text-foreground">{progressStats.attendanceRate}%</span>
-                  {getTrendIcon(progressStats.attendanceRate, progressStats.previousAttendance)}
-                </div>
-                <p className="text-xs text-muted-foreground">Attendance</p>
-                <p className="text-xs text-success hidden sm:block">
-                  {getTrendText(progressStats.attendanceRate, progressStats.previousAttendance)}
-                </p>
+            ) : !progressStats ? (
+              <div className="text-center py-8 text-sm text-muted-foreground">
+                No marks data yet for this class. Progress will appear after marks are entered.
               </div>
-              <div className="text-center p-2 sm:p-3 rounded-lg bg-muted/50">
-                <div className="flex items-center justify-center gap-1 mb-1">
-                  <span className="text-lg sm:text-2xl font-bold text-foreground">{progressStats.passRate}%</span>
-                  {getTrendIcon(progressStats.passRate, progressStats.previousPassRate)}
-                </div>
-                <p className="text-xs text-muted-foreground">Pass Rate</p>
-                <p className="text-xs text-success hidden sm:block">
-                  {getTrendText(progressStats.passRate, progressStats.previousPassRate)}
-                </p>
-              </div>
-            </div>
-
-            {/* Subject Performance */}
-            <div>
-              <h4 className="text-xs sm:text-sm font-medium text-foreground mb-2 sm:mb-3">Subject Performance</h4>
-              <div className="space-y-2 sm:space-y-3">
-                {progressStats.subjectPerformance.map((subject) => (
-                  <div key={subject.subject} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs sm:text-sm">
-                      <span className="text-foreground truncate">{subject.subject}</span>
-                      <div className="flex items-center gap-1 sm:gap-2">
-                        <span className="text-muted-foreground">{subject.average}%</span>
-                        {getTrendIcon(subject.average, subject.previousAverage)}
-                      </div>
-                    </div>
-                    <Progress value={subject.average} className="h-1.5 sm:h-2" />
+            ) : (
+              <>
+                {/* Key Metrics */}
+                <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                  <div className="text-center p-2 sm:p-3 rounded-lg bg-muted/50">
+                    <span className="text-lg sm:text-2xl font-bold text-foreground">{progressStats.classAverage}%</span>
+                    <p className="text-xs text-muted-foreground mt-1">Class Avg</p>
                   </div>
-                ))}
-              </div>
-            </div>
+                  <div className="text-center p-2 sm:p-3 rounded-lg bg-muted/50">
+                    <span className="text-lg sm:text-2xl font-bold text-foreground">
+                      {classStudents.length > 0
+                        ? Math.round((Object.values(todayAttendance).filter((s) => s === "present").length / classStudents.length) * 100)
+                        : 0}%
+                    </span>
+                    <p className="text-xs text-muted-foreground mt-1">Today Attendance</p>
+                  </div>
+                  <div className="text-center p-2 sm:p-3 rounded-lg bg-muted/50">
+                    <span className="text-lg sm:text-2xl font-bold text-foreground">{progressStats.passRate}%</span>
+                    <p className="text-xs text-muted-foreground mt-1">Pass Rate</p>
+                  </div>
+                </div>
 
-            {/* Top Performers */}
-            <div>
-              <h4 className="text-xs sm:text-sm font-medium text-foreground mb-2 sm:mb-3">Top Performers</h4>
-              <div className="space-y-2">
-                {progressStats.topPerformers.map((student, index) => (
-                  <div
-                    key={student.name}
-                    className="flex items-center justify-between py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg bg-muted/30"
-                  >
-                    <div className="flex items-center gap-2 sm:gap-3">
-                      <span className="text-xs font-bold text-primary">#{index + 1}</span>
-                      <span className="text-xs sm:text-sm text-foreground truncate">{student.name}</span>
-                    </div>
-                    <div className="flex items-center gap-1 sm:gap-2">
-                      <span className="text-xs sm:text-sm font-medium text-foreground">{student.marks}%</span>
-                      {student.trend === "up" && <TrendingUp className="h-3 w-3 text-success" />}
+                {/* Subject Performance */}
+                {progressStats.subjectPerformance.length > 0 && (
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-medium text-foreground mb-2 sm:mb-3">Subject Performance</h4>
+                    <div className="space-y-2 sm:space-y-3">
+                      {progressStats.subjectPerformance.map((subject) => (
+                        <div key={subject.subject} className="space-y-1">
+                          <div className="flex items-center justify-between text-xs sm:text-sm">
+                            <span className="text-foreground truncate">{subject.subject}</span>
+                            <span className="text-muted-foreground">{subject.average}%</span>
+                          </div>
+                          <Progress value={subject.average} className="h-1.5 sm:h-2" />
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
+                )}
+
+                {/* Top Performers */}
+                {progressStats.topPerformers.length > 0 && (
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-medium text-foreground mb-2 sm:mb-3">Top Performers</h4>
+                    <div className="space-y-2">
+                      {progressStats.topPerformers.map((student, index) => (
+                        <div
+                          key={`${student.name}-${index}`}
+                          className="flex items-center justify-between py-1.5 sm:py-2 px-2 sm:px-3 rounded-lg bg-muted/30"
+                        >
+                          <div className="flex items-center gap-2 sm:gap-3">
+                            <span className="text-xs font-bold text-primary">#{index + 1}</span>
+                            <span className="text-xs sm:text-sm text-foreground truncate">{student.name}</span>
+                          </div>
+                          <span className="text-xs sm:text-sm font-medium text-foreground">{student.marks}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </CardContent>
         </Card>
 

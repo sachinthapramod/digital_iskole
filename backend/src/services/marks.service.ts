@@ -427,4 +427,83 @@ export class MarksService {
       throw new ApiErrorResponse('FETCH_FAILED', 'Failed to fetch student marks', 500);
     }
   }
+
+  /** Class progress stats for teacher dashboard: class average, pass rate, subject performance, top performers */
+  async getClassProgressStats(className: string): Promise<{
+    classAverage: number;
+    passRate: number;
+    subjectPerformance: Array<{ subject: string; average: number }>;
+    topPerformers: Array<{ name: string; marks: number }>;
+  }> {
+    try {
+      const marksSnapshot = await db.collection('marks')
+        .where('className', '==', className)
+        .limit(2000)
+        .get();
+
+      const marks: any[] = marksSnapshot.docs.map((doc) => {
+        const d = doc.data() as any;
+        return {
+          studentId: d.studentId,
+          studentName: d.studentName,
+          subjectName: d.subjectName || 'Unknown',
+          percentage: typeof d.percentage === 'number' ? d.percentage : (d.totalMarks ? Math.round((d.marks / d.totalMarks) * 100) : 0),
+        };
+      });
+
+      if (marks.length === 0) {
+        return {
+          classAverage: 0,
+          passRate: 0,
+          subjectPerformance: [],
+          topPerformers: [],
+        };
+      }
+
+      const byStudent = new Map<string, number[]>();
+      const bySubject = new Map<string, number[]>();
+      for (const m of marks) {
+        const arrS = byStudent.get(m.studentId) || [];
+        arrS.push(m.percentage);
+        byStudent.set(m.studentId, arrS);
+        const arrSub = bySubject.get(m.subjectName) || [];
+        arrSub.push(m.percentage);
+        bySubject.set(m.subjectName, arrSub);
+      }
+
+      const studentAverages: Array<{ studentId: string; studentName: string; avg: number }> = [];
+      for (const [studentId, percents] of byStudent) {
+        const studentName = marks.find((m) => m.studentId === studentId)?.studentName || 'Student';
+        const avg = percents.length > 0 ? Math.round(percents.reduce((a, b) => a + b, 0) / percents.length) : 0;
+        studentAverages.push({ studentId, studentName, avg });
+      }
+
+      const classAverage = studentAverages.length > 0
+        ? Math.round(studentAverages.reduce((s, x) => s + x.avg, 0) / studentAverages.length * 10) / 10
+        : 0;
+      const passed = studentAverages.filter((s) => s.avg >= 50).length;
+      const passRate = studentAverages.length > 0 ? Math.round((passed / studentAverages.length) * 100) : 0;
+
+      const subjectPerformance = Array.from(bySubject.entries()).map(([subject, percents]) => ({
+        subject,
+        average: percents.length > 0 ? Math.round(percents.reduce((a, b) => a + b, 0) / percents.length) : 0,
+      })).sort((a, b) => b.average - a.average);
+
+      const topPerformers = studentAverages
+        .slice()
+        .sort((a, b) => b.avg - a.avg)
+        .slice(0, 5)
+        .map((s) => ({ name: s.studentName, marks: s.avg }));
+
+      return {
+        classAverage,
+        passRate,
+        subjectPerformance,
+        topPerformers,
+      };
+    } catch (error: any) {
+      logger.error('Get class progress stats error:', error);
+      throw new ApiErrorResponse('FETCH_FAILED', 'Failed to fetch class progress stats', 500);
+    }
+  }
 }

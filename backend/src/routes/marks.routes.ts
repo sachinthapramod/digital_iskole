@@ -13,6 +13,9 @@ router.get('/exam/:examId', requireAdminOrTeacher, marksController.getMarksByExa
 // Get students for marks entry
 router.get('/students', requireAdminOrTeacher, marksController.getStudentsForMarksEntry.bind(marksController));
 
+// Class progress stats (for teacher dashboard)
+router.get('/class-stats', requireAdminOrTeacher, marksController.getClassProgressStats.bind(marksController));
+
 // Enter marks (teachers only; admin can only view)
 router.post('/enter', requireTeacher, marksController.enterMarks.bind(marksController));
 
