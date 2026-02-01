@@ -127,10 +127,18 @@ function AdminReportsReal() {
   const [viewingReport, setViewingReport] = useState<any | null>(null)
   const [viewDialogOpen, setViewDialogOpen] = useState(false)
 
-  const reportTypeOptions = useMemo(
-    () => ["Term Report", "Progress Report", "Attendance Report", "Full Academic Report"],
-    []
-  )
+  const reportTypeOptions = useMemo(() => {
+    const base = ["Term Report", "Progress Report", "Attendance Report", "Full Academic Report"];
+    if (category === "school") return base.filter((rt) => rt !== "Term Report");
+    return base;
+  }, [category])
+
+  // When on school scope, Term Report is not available; ensure selection is valid
+  useEffect(() => {
+    if (category === "school" && reportType === "Term Report" && reportTypeOptions.length > 0) {
+      setReportType(reportTypeOptions[0])
+    }
+  }, [category, reportType, reportTypeOptions])
 
   const termOptions = useMemo(
     () => [

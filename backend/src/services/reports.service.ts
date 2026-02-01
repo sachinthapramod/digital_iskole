@@ -47,6 +47,85 @@ async function getExamIdToTermMap(): Promise<Map<string, 'first-term' | 'second-
   return map;
 }
 
+/** Compute average percent from mark docs for one student (term or Annual). */
+function computeAveragePercentFromMarks(
+  marks: any[],
+  isAnnual: boolean,
+  examIdToTerm: Map<string, 'first-term' | 'second-term' | 'third-term'> | null
+): number {
+  if (marks.length === 0) return 0;
+  if (isAnnual && examIdToTerm) {
+    const bySubjectTerm = new Map<string, { 'first-term'?: any; 'second-term'?: any; 'third-term'?: any }>();
+    const bySubjectAll = new Map<string, any[]>();
+    for (const m of marks) {
+      const key = m.subjectName || 'Unknown Subject';
+      const arr = bySubjectAll.get(key) || [];
+      arr.push(m);
+      bySubjectAll.set(key, arr);
+      const termType = examIdToTerm.get(m.examId);
+      if (!termType) continue;
+      let entry = bySubjectTerm.get(key);
+      if (!entry) {
+        entry = {};
+        bySubjectTerm.set(key, entry);
+      }
+      const existing = entry[termType];
+      const mTime = (m.updatedAt || m.createdAt)?.toMillis?.() || 0;
+      const eTime = existing ? (existing.updatedAt || existing.createdAt)?.toMillis?.() || 0 : 0;
+      if (!existing || mTime > eTime) entry[termType] = m;
+    }
+    const percents: number[] = [];
+    const subjectKeys = new Set([...bySubjectTerm.keys(), ...bySubjectAll.keys()]);
+    for (const subjectName of subjectKeys) {
+      const entry = bySubjectTerm.get(subjectName);
+      const t1 = entry?.['first-term'];
+      const t2 = entry?.['second-term'];
+      const t3 = entry?.['third-term'];
+      const p1 = t1?.totalMarks ? Math.round((t1.marks / t1.totalMarks) * 100) : null;
+      const p2 = t2?.totalMarks ? Math.round((t2.marks / t2.totalMarks) * 100) : null;
+      const p3 = t3?.totalMarks ? Math.round((t3.marks / t3.totalMarks) * 100) : null;
+      const termPercents = [p1, p2, p3].filter((p): p is number => typeof p === 'number');
+      if (termPercents.length > 0) {
+        percents.push(Math.round(termPercents.reduce((s, p) => s + p, 0) / termPercents.length));
+      } else {
+        const allMarks = bySubjectAll.get(subjectName) || [];
+        const sorted = allMarks.slice().sort((a, b) => {
+          const aT = (a.updatedAt || a.createdAt)?.toMillis?.() || 0;
+          const bT = (b.updatedAt || b.createdAt)?.toMillis?.() || 0;
+          return bT - aT;
+        });
+        const latest = sorted[0];
+        const p = latest?.totalMarks
+          ? Math.round((latest.marks / latest.totalMarks) * 100)
+          : typeof latest?.percentage === 'number'
+            ? Math.round(latest.percentage)
+            : 0;
+        percents.push(p);
+      }
+    }
+    return percents.length > 0 ? Math.round(percents.reduce((sum, p) => sum + p, 0) / percents.length) : 0;
+  }
+  const bySubject = new Map<string, any[]>();
+  for (const m of marks) {
+    const key = m.subjectName || 'Unknown Subject';
+    const arr = bySubject.get(key) || [];
+    arr.push(m);
+    bySubject.set(key, arr);
+  }
+  const latestPerSubject = Array.from(bySubject.values()).map((list) => {
+    const sorted = list.slice().sort((a, b) => {
+      const aT = (a.updatedAt || a.createdAt)?.toMillis?.() || 0;
+      const bT = (b.updatedAt || b.createdAt)?.toMillis?.() || 0;
+      return bT - aT;
+    });
+    return sorted[0];
+  });
+  const percentages = latestPerSubject
+    .map((m) => (typeof m?.percentage === 'number' ? m.percentage : m?.totalMarks ? Math.round((m.marks / m.totalMarks) * 100) : 0))
+    .filter((p) => typeof p === 'number');
+  return percentages.length > 0 ? Math.round(percentages.reduce((sum, p) => sum + p, 0) / percentages.length) : 0;
+}
+
 export class ReportsService {
   async listReportsForAdmin(limit: number = 50): Promise<ReportRecord[]> {
     try {
@@ -334,16 +413,60 @@ export class ReportsService {
         overallGrade = calculateGradeFromPercent(averagePercent);
       }
 
+      let className = student.className || '';
+      if (!className && student.classId) {
+        const classDoc = await db.collection('classes').doc(student.classId as string).get();
+        if (classDoc.exists) className = (classDoc.data() as any)?.name || '';
+      }
+      const isAnnual = params.term === 'Annual';
+      const examIdToTermForRank = isAnnual ? await getExamIdToTermMap() : null;
+
+      // Class rank: compare this student's average to all classmates
+      let classRank: number | null = null;
+      let classSize = 0;
+      if (className) {
+        const classMarksSnap = await db.collection('marks').where('className', '==', className).get();
+        const classMarksByStudent = new Map<string, any[]>();
+        for (const doc of classMarksSnap.docs) {
+          const m = doc.data() as any;
+          const sid = m.studentId as string;
+          if (!sid) continue;
+          const arr = classMarksByStudent.get(sid) || [];
+          arr.push(m);
+          classMarksByStudent.set(sid, arr);
+        }
+        const classStudentsSnap = await db
+          .collection('students')
+          .where('className', '==', className)
+          .where('status', '==', 'active')
+          .get();
+        const studentIds = classStudentsSnap.docs.map((d) => d.id);
+        classSize = studentIds.length;
+        const averages: { studentId: string; averagePercent: number }[] = studentIds.map((sid) => ({
+          studentId: sid,
+          averagePercent: computeAveragePercentFromMarks(
+            classMarksByStudent.get(sid) || [],
+            isAnnual,
+            examIdToTermForRank
+          ),
+        }));
+        averages.sort((a, b) => b.averagePercent - a.averagePercent);
+        const rankIdx = averages.findIndex((a) => a.studentId === studentDoc.id);
+        if (rankIdx >= 0) classRank = rankIdx + 1;
+      }
+
+      const hideMarksTable =
+        params.reportType === 'Progress Report' || params.reportType === 'Attendance Report';
       const reportData = {
         student: {
           id: studentDoc.id,
           name: student.fullName || student.name || '',
           admissionNumber: student.admissionNumber || student.admissionNo || '',
-          className: student.className || '',
+          className,
         },
         term: params.term || '',
         reportType: params.reportType || 'Student Report',
-        isAnnual: params.term === 'Annual',
+        isAnnual,
         attendance: {
           totalDays,
           presentDays,
@@ -352,9 +475,11 @@ export class ReportsService {
           attendanceRate,
         },
         marks: {
-          subjects,
+          subjects: hideMarksTable ? [] : subjects,
           averagePercent,
           overallGrade,
+          classRank: classRank ?? undefined,
+          classSize: classSize || undefined,
         },
         generatedAt: new Date().toISOString(),
       };
@@ -562,11 +687,19 @@ export class ReportsService {
           ? Math.round(studentSummaries.reduce((sum, s) => sum + (s.marks.averagePercent || 0), 0) / studentSummaries.length)
           : 0;
 
-      const topStudents = studentSummaries
+      // Assign class rank to every student (by average % desc)
+      const sortedByAvg = studentSummaries
         .slice()
-        .sort((a, b) => (b.marks.averagePercent || 0) - (a.marks.averagePercent || 0))
-        .slice(0, 10)
-        .map((s, idx) => ({ rank: idx + 1, ...s }));
+        .sort((a, b) => (b.marks.averagePercent || 0) - (a.marks.averagePercent || 0));
+      const studentsWithRank = sortedByAvg.map((s, idx) => ({ ...s, classRank: idx + 1 }));
+
+      const showAllWithRankOnly =
+        params.reportType === 'Term Report' || params.reportType === 'Full Academic Report';
+      const topStudents = showAllWithRankOnly
+        ? []
+        : studentsWithRank
+            .slice(0, 10)
+            .map((s) => ({ rank: s.classRank, ...s }));
 
       const reportData = {
         class: {
@@ -582,7 +715,7 @@ export class ReportsService {
           classAttendanceRate,
           classAverageMarks,
         },
-        students: studentSummaries,
+        students: studentsWithRank,
         topStudents,
         generatedAt: new Date().toISOString(),
       };
@@ -629,6 +762,9 @@ export class ReportsService {
     createdByRole: 'admin' | 'teacher' | 'parent';
   }): Promise<ReportRecord> {
     try {
+      if (params.reportType === 'Term Report') {
+        throw new ApiErrorResponse('VALIDATION_ERROR', 'Term Report is not available for school scope', 400);
+      }
       const [classesSnap, studentsSnap, teachersSnap, marksSnap, attendanceSnap] = await Promise.all([
         db.collection('classes').get(),
         db.collection('students').get(),

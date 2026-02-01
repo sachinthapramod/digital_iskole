@@ -33,10 +33,18 @@ const app: Express = express();
 
 // Security middleware
 app.use(helmet());
+// CORS: allow frontend origin(s). Use comma-separated list for multiple (e.g. production + preview).
+const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000';
+const corsOrigins = corsOrigin.split(',').map((o) => o.trim()).filter(Boolean);
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: corsOrigins.length > 1 ? (origin, cb) => {
+      if (!origin || corsOrigins.includes(origin)) cb(null, true);
+      else cb(null, corsOrigins[0]);
+    } : corsOrigins[0] || 'http://localhost:3000',
     credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   })
 );
 
@@ -51,6 +59,16 @@ app.use((req, _res, next) => {
     userAgent: req.get('user-agent'),
   });
   next();
+});
+
+// Root: friendly response when visiting backend URL in browser
+app.get('/', (_req, res) => {
+  res.json({
+    success: true,
+    message: 'Digital Iskole API',
+    docs: 'Use /health for health check. API routes are under /api (e.g. /api/auth/login).',
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // Health check endpoint

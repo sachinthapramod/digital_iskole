@@ -31,6 +31,11 @@ export function buildStudentReportHtml(reportData: any): { html: string; filenam
   const marks = reportData?.marks || {};
   const subjects: any[] = Array.isArray(marks.subjects) ? marks.subjects : [];
   const isAnnual = reportData?.isAnnual === true && subjects.some((s: any) => s.isAnnual);
+  const hideMarksTable = reportType === 'Progress Report' || reportType === 'Attendance Report';
+  const classRankDisplay =
+    marks?.classRank != null && marks?.classSize != null && marks.classSize > 0
+      ? `${marks.classRank} / ${marks.classSize}`
+      : '—';
 
   const title = `${studentName} - ${reportType}${term ? ` (${term})` : ''}`;
   const filename = safeFilename(`${title}.pdf`) || `report.pdf`;
@@ -114,12 +119,12 @@ export function buildStudentReportHtml(reportData: any): { html: string; filenam
           <div class="muted">${escapeHtml(className ? `Class: ${className}` : '')}${className && admission ? ' • ' : ''}${escapeHtml(admission ? `Admission: ${admission}` : '')}</div>
         </div>
         <div class="card">
-          <div class="label">Overall</div>
+          <div class="label">Overall Performance</div>
           <div class="summary">
             <div class="stat"><div class="n">${escapeHtml(marks.averagePercent ?? 0)}%</div><div class="k">Average</div></div>
             <div class="stat"><div class="n">${escapeHtml(marks.overallGrade ?? '')}</div><div class="k">Grade</div></div>
             <div class="stat"><div class="n">${escapeHtml(attendance.attendanceRate ?? 0)}%</div><div class="k">Attendance</div></div>
-            <div class="stat"><div class="n">${escapeHtml(subjects.length)}</div><div class="k">Subjects</div></div>
+            <div class="stat"><div class="n">${escapeHtml(classRankDisplay)}</div><div class="k">Class Rank</div></div>
           </div>
         </div>
       </div>
@@ -141,6 +146,7 @@ export function buildStudentReportHtml(reportData: any): { html: string; filenam
         </div>
       </div>
 
+      ${hideMarksTable ? '' : `
       <div class="card" style="margin-top: 12px;">
         <div class="label">${isAnnual ? 'Marks (all three terms)' : 'Marks'}</div>
         <table>
@@ -157,6 +163,7 @@ export function buildStudentReportHtml(reportData: any): { html: string; filenam
           </tbody>
         </table>
       </div>
+      `}
 
       <div class="footer">
         <div>Digital Iskole</div>
@@ -181,16 +188,19 @@ export function buildClassReportHtml(reportData: any): { html: string; filename:
 
   const students: any[] = Array.isArray(reportData?.students) ? reportData.students : [];
   const topStudents: any[] = Array.isArray(reportData?.topStudents) ? reportData.topStudents : [];
+  const showAllWithRankOnly =
+    reportType === 'Term Report' || reportType === 'Full Academic Report';
 
   const studentRows = students
-    .map((s, idx) => {
+    .map((s) => {
       const name = escapeHtml(s.studentName || '');
       const rollNo = escapeHtml(s.rollNo || '');
       const avg = escapeHtml(`${s?.marks?.averagePercent ?? 0}%`);
       const grade = escapeHtml(s?.marks?.overallGrade ?? '');
       const att = escapeHtml(`${s?.attendance?.attendanceRate ?? 0}%`);
+      const rankDisplay = s.classRank != null ? escapeHtml(String(s.classRank)) : '—';
       return `<tr>
-        <td style="text-align:right;">${idx + 1}</td>
+        <td style="text-align:right;">${rankDisplay}</td>
         <td>${rollNo}</td>
         <td>${name}</td>
         <td style="text-align:right;">${avg}</td>
@@ -267,11 +277,12 @@ export function buildClassReportHtml(reportData: any): { html: string; filename:
             <div class="stat"><div class="n">${escapeHtml(studentCount)}</div><div class="k">Students</div></div>
             <div class="stat"><div class="n">${escapeHtml(summary.classAverageMarks ?? 0)}%</div><div class="k">Avg Marks</div></div>
             <div class="stat"><div class="n">${escapeHtml(summary.classAttendanceRate ?? 0)}%</div><div class="k">Attendance</div></div>
-            <div class="stat"><div class="n">${escapeHtml(topStudents.length)}</div><div class="k">Top Listed</div></div>
+            <div class="stat"><div class="n">${escapeHtml(showAllWithRankOnly ? students.length : topStudents.length)}</div><div class="k">${showAllWithRankOnly ? 'Students' : 'Top Listed'}</div></div>
           </div>
         </div>
       </div>
 
+      ${!showAllWithRankOnly && topStudents.length > 0 ? `
       <div class="card" style="margin-top: 12px;">
         <div class="label">Top Students</div>
         <table>
@@ -289,13 +300,14 @@ export function buildClassReportHtml(reportData: any): { html: string; filename:
           </tbody>
         </table>
       </div>
+      ` : ''}
 
       <div class="card" style="margin-top: 12px;">
         <div class="label">All Students</div>
         <table>
           <thead>
             <tr>
-              <th style="width:50px; text-align:right;">#</th>
+              <th style="width:50px; text-align:right;">Class Rank</th>
               <th style="width:90px;">Roll</th>
               <th>Name</th>
               <th style="width:90px; text-align:right;">Avg %</th>
