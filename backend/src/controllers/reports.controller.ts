@@ -66,21 +66,21 @@ export class ReportsController {
 
       const { id } = req.params;
       const report = await reportsService.getReport(id, req.user.uid, req.user.role);
-      const data = report.data;
+      const data = report.data ?? null;
 
       let html: string | null = null;
       let filename: string | null = null;
 
       if (report.type === 'student') {
-        const built = buildStudentReportHtml(data);
+        const built = buildStudentReportHtml(data || {});
         html = built.html;
         filename = built.filename;
       } else if (report.type === 'class') {
-        const built = buildClassReportHtml(data);
+        const built = buildClassReportHtml(data || {});
         html = built.html;
         filename = built.filename;
       } else if (report.type === 'school') {
-        const built = buildSchoolReportHtml(data);
+        const built = buildSchoolReportHtml(data || {});
         html = built.html;
         filename = built.filename;
       }
@@ -90,7 +90,19 @@ export class ReportsController {
         return;
       }
 
-      const pdfBuffer = await renderHtmlToPdfBuffer(html);
+      let pdfBuffer: Buffer;
+      try {
+        pdfBuffer = await renderHtmlToPdfBuffer(html);
+      } catch (pdfError: any) {
+        logger.error('PDF generation failed:', pdfError?.message || pdfError);
+        sendError(
+          res,
+          'SERVICE_UNAVAILABLE',
+          'PDF generation failed. Please try again or contact support.',
+          503
+        );
+        return;
+      }
 
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${filename || `report-${id}.pdf`}"`);

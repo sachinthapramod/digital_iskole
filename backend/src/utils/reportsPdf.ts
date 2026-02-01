@@ -1,5 +1,11 @@
 import puppeteer from 'puppeteer';
 
+/** Minimal browser interface (newPage, close) so we can use either puppeteer or puppeteer-core. */
+interface PdfBrowser {
+  newPage(): Promise<{ setContent(html: string, opts?: { waitUntil?: string }): Promise<void>; pdf(opts?: object): Promise<Buffer> }>;
+  close(): Promise<void>;
+}
+
 function escapeHtml(value: any): string {
   const s = String(value ?? '');
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -438,13 +444,32 @@ export function buildSchoolReportHtml(reportData: any): { html: string; filename
   return { html, filename };
 }
 
-export async function renderHtmlToPdfBuffer(html: string): Promise<Buffer> {
+/** Launch browser: on Vercel use @sparticuz/chromium; otherwise use local Puppeteer. */
+async function launchBrowser(): Promise<PdfBrowser> {
+  const isVercel = process.env.VERCEL === '1';
+  if (isVercel) {
+    const chromium = await import('@sparticuz/chromium');
+    const puppeteerCore = await import('puppeteer-core');
+    const executablePath = await chromium.default.executablePath();
+    const browser = await puppeteerCore.default.launch({
+      executablePath,
+      args: chromium.default.args,
+      headless: 'new',
+      ignoreHTTPSErrors: true,
+    });
+    return browser as unknown as PdfBrowser;
+  }
   const browser = await puppeteer.launch({
-    headless: true,
+    headless: 'new',
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
+  return browser as unknown as PdfBrowser;
+}
 
+export async function renderHtmlToPdfBuffer(html: string): Promise<Buffer> {
+  let browser: PdfBrowser | null = null;
   try {
+    browser = await launchBrowser();
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'networkidle0' });
     const pdf = await page.pdf({
@@ -454,7 +479,7 @@ export async function renderHtmlToPdfBuffer(html: string): Promise<Buffer> {
     });
     return Buffer.from(pdf);
   } finally {
-    await browser.close();
+    if (browser) await browser.close();
   }
 }
 
