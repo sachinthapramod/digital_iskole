@@ -254,10 +254,21 @@ function AdminReportsReal() {
   const downloadReport = async (id: string) => {
     try {
       setError(null)
+      // Ensure we have a token so the server gets Authorization header (fixes 401 on live)
+      const token = typeof window !== "undefined" ? localStorage.getItem("digital-iskole-token") : null
+      if (!token) {
+        setError("Session expired. Please log in again.")
+        return
+      }
       const response = await apiRequest(`/reports/${id}/download`)
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        throw new Error(data?.error?.message || data?.message || `Download failed (${response.status})`)
+        const msg = data?.error?.message || data?.message || `Download failed (${response.status})`
+        if (response.status === 401 || /auth|token|login/i.test(msg)) {
+          setError("Session expired. Please log in again.")
+          return
+        }
+        throw new Error(msg)
       }
       const blob = await response.blob()
       const disposition = response.headers.get("content-disposition") || ""
@@ -273,7 +284,12 @@ function AdminReportsReal() {
       a.remove()
       window.URL.revokeObjectURL(url)
     } catch (e: any) {
-      setError(e?.message || "Failed to download PDF")
+      const msg = e?.message || "Failed to download"
+      if (/session|login|token|auth/i.test(msg)) {
+        setError("Session expired. Please log in again.")
+      } else {
+        setError(msg)
+      }
     }
   }
 
@@ -2242,10 +2258,20 @@ export default function ReportsPage() {
 
   const handleDownloadPDF = async (reportId: string) => {
     try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("digital-iskole-token") : null
+      if (!token) {
+        setError("Session expired. Please log in again.")
+        return
+      }
       const response = await apiRequest(`/reports/${reportId}/download`)
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        throw new Error(data?.error?.message || data?.message || `Download failed (${response.status})`)
+        const msg = data?.error?.message || data?.message || `Download failed (${response.status})`
+        if (response.status === 401 || /auth|token|login/i.test(msg)) {
+          setError("Session expired. Please log in again.")
+          return
+        }
+        throw new Error(msg)
       }
       const blob = await response.blob()
       const disposition = response.headers.get("content-disposition") || ""
@@ -2261,7 +2287,9 @@ export default function ReportsPage() {
       a.remove()
       window.URL.revokeObjectURL(url)
     } catch (e: any) {
-      console.error("Failed to download PDF:", e)
+      const msg = e?.message || "Failed to download"
+      if (/session|login|token|auth/i.test(msg)) setError("Session expired. Please log in again.")
+      else setError(msg)
     }
   }
 
@@ -2378,10 +2406,20 @@ export default function ReportsPage() {
 
   const handleDownloadTeacherPDF = async (reportId: string) => {
     try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("digital-iskole-token") : null
+      if (!token) {
+        setError("Session expired. Please log in again.")
+        return
+      }
       const response = await apiRequest(`/reports/${reportId}/download`)
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        throw new Error(data?.error?.message || data?.message || `Download failed (${response.status})`)
+        const msg = data?.error?.message || data?.message || `Download failed (${response.status})`
+        if (response.status === 401 || /auth|token|login/i.test(msg)) {
+          setError("Session expired. Please log in again.")
+          return
+        }
+        throw new Error(msg)
       }
       const blob = await response.blob()
       const disposition = response.headers.get("content-disposition") || ""
@@ -2397,7 +2435,9 @@ export default function ReportsPage() {
       a.remove()
       window.URL.revokeObjectURL(url)
     } catch (e: any) {
-      console.error("Failed to download PDF:", e)
+      const msg = e?.message || "Failed to download"
+      if (/session|login|token|auth/i.test(msg)) setError("Session expired. Please log in again.")
+      else setError(msg)
     }
   }
 

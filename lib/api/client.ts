@@ -125,12 +125,12 @@ export async function apiRequest(
     throw error;
   }
 
-  // If token expired, try to refresh and retry
+  // If token expired or invalid, try to refresh and retry
   if (response.status === 401) {
     const data = await response.json().catch(() => ({}));
     const errorCode = data.error?.code || data.code;
+    const errorMessage = data.error?.message || data.message || 'Authorization required';
 
-    // Only refresh if it's a token expiration error
     if (errorCode === 'AUTH_TOKEN_EXPIRED' || errorCode === 'AUTH_TOKEN_INVALID') {
       const newToken = await refreshAccessToken();
       
@@ -141,10 +141,15 @@ export async function apiRequest(
           ...options,
           headers,
         });
+        // If retry still returns 401, don't return it – throw so caller can show login message
+        if (response.status === 401) {
+          throw new Error('Session expired. Please log in again.');
+        }
       } else {
-        // Refresh failed, throw error to trigger redirect
-        throw new Error('Token refresh failed. Please login again.');
+        throw new Error('Session expired. Please log in again.');
       }
+    } else {
+      throw new Error(errorMessage || 'Session expired. Please log in again.');
     }
   }
 
