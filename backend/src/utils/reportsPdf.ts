@@ -450,11 +450,21 @@ async function launchBrowser(): Promise<PdfBrowser> {
   if (isVercel) {
     const chromium = await import('@sparticuz/chromium');
     const puppeteerCore = await import('puppeteer-core');
+    // Disable WebGL to reduce resource use and improve stability on serverless
+    (chromium.default as any).setGraphicsMode = false;
     const executablePath = await chromium.default.executablePath();
-    // @sparticuz/chromium uses headless_shell; "shell" is required at runtime (puppeteer-core types only allow boolean | "new")
+    const args = [
+      ...(chromium.default.args || []),
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--single-process',
+      '--font-render-hinting=none',
+      '--disable-gpu',
+    ];
     const browser = await puppeteerCore.default.launch({
       executablePath,
-      args: [...(chromium.default.args || []), '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--single-process'],
+      args,
       headless: 'shell',
       ignoreHTTPSErrors: true,
     } as any);
