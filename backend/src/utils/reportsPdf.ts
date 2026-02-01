@@ -444,19 +444,20 @@ export function buildSchoolReportHtml(reportData: any): { html: string; filename
   return { html, filename };
 }
 
-/** Launch browser: on Vercel use @sparticuz/chromium; otherwise use local Puppeteer. */
+/** Launch browser: on Vercel use @sparticuz/chromium (headless shell); otherwise use local Puppeteer. */
 async function launchBrowser(): Promise<PdfBrowser> {
   const isVercel = process.env.VERCEL === '1';
   if (isVercel) {
     const chromium = await import('@sparticuz/chromium');
     const puppeteerCore = await import('puppeteer-core');
     const executablePath = await chromium.default.executablePath();
+    // @sparticuz/chromium uses headless_shell; "shell" is required at runtime (puppeteer-core types only allow boolean | "new")
     const browser = await puppeteerCore.default.launch({
       executablePath,
-      args: chromium.default.args,
-      headless: 'new',
+      args: [...(chromium.default.args || []), '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--single-process'],
+      headless: 'shell',
       ignoreHTTPSErrors: true,
-    });
+    } as any);
     return browser as unknown as PdfBrowser;
   }
   const browser = await puppeteer.launch({
@@ -471,7 +472,8 @@ export async function renderHtmlToPdfBuffer(html: string): Promise<Buffer> {
   try {
     browser = await launchBrowser();
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
+    // Use 'load' for static HTML to avoid long timeouts; 'networkidle0' can hang on serverless
+    await page.setContent(html, { waitUntil: 'load' });
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,
