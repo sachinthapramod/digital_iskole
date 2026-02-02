@@ -278,6 +278,16 @@ export class ReportsService {
     await db.collection('reports').doc(id).delete();
   }
 
+  /** Update report document with cached PDF filename so download can use signed URL without Puppeteer. */
+  async updateReportPdfPath(reportId: string, pdfFilename: string): Promise<void> {
+    const doc = await db.collection('reports').doc(reportId).get();
+    if (!doc.exists) return;
+    const d = doc.data() as any;
+    const data = d.data || {};
+    data.pdfFilename = pdfFilename;
+    await db.collection('reports').doc(reportId).update({ data });
+  }
+
   async generateStudentReport(params: {
     studentId: string;
     term?: string;

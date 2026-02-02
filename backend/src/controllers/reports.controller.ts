@@ -4,7 +4,7 @@ import reportsService from '../services/reports.service';
 import { sendSuccess, sendError } from '../utils/response';
 import logger from '../utils/logger';
 import { buildStudentReportHtml, buildClassReportHtml, buildSchoolReportHtml, renderHtmlToPdfBuffer } from '../utils/reportsPdf';
-import { uploadReportPdfAndGetSignedUrl } from '../utils/reportStorage';
+import { uploadReportPdfAndGetSignedUrl, getSignedUrlForExistingReport } from '../utils/reportStorage';
 
 export class ReportsController {
   async list(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -69,6 +69,16 @@ export class ReportsController {
       const report = await reportsService.getReport(id, req.user.uid, req.user.role);
       const data = report.data ?? null;
 
+      // Use cached PDF in Storage if present (avoids Puppeteer on Vercel = no 503)
+      const cachedFilename = data?.pdfFilename;
+      if (cachedFilename) {
+        const cachedUrl = await getSignedUrlForExistingReport(id, cachedFilename);
+        if (cachedUrl) {
+          sendSuccess(res, { downloadUrl: cachedUrl, filename: cachedFilename }, 'Download URL ready');
+          return;
+        }
+      }
+
       let html: string | null = null;
       let filename: string | null = null;
 
@@ -101,8 +111,9 @@ export class ReportsController {
       }
 
       const finalFilename = filename || `report-${id}.pdf`;
-      const downloadUrl = await uploadReportPdfAndGetSignedUrl(id, finalFilename, pdfBuffer);
-      sendSuccess(res, { downloadUrl, filename: finalFilename }, 'Download URL ready');
+      const { signedUrl, storedFilename } = await uploadReportPdfAndGetSignedUrl(id, finalFilename, pdfBuffer);
+      await reportsService.updateReportPdfPath(id, storedFilename);
+      sendSuccess(res, { downloadUrl: signedUrl, filename: finalFilename }, 'Download URL ready');
     } catch (error: any) {
       logger.error('Download report controller error:', error);
       next(error);
