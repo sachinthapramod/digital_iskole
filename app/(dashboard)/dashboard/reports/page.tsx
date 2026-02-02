@@ -262,35 +262,33 @@ function AdminReportsReal() {
   const downloadReport = async (id: string) => {
     try {
       setError(null)
-      // Ensure we have a token so the server gets Authorization header (fixes 401 on live)
       const token = typeof window !== "undefined" ? localStorage.getItem("digital-iskole-token") : null
       if (!token) {
         setError("Session expired. Please log in again.")
         return
       }
       const response = await apiRequest(`/reports/${id}/download`)
+      const json = await response.json().catch(() => ({}))
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        const msg = data?.error?.message || data?.message || `Download failed (${response.status})`
+        const msg = json?.error?.message || json?.message || `Download failed (${response.status})`
         if (response.status === 401 || /auth|token|login/i.test(msg)) {
           setError("Session expired. Please log in again.")
           return
         }
         throw new Error(msg)
       }
-      const blob = await response.blob()
-      const disposition = response.headers.get("content-disposition") || ""
-      const match = disposition.match(/filename="([^"]+)"/)
-      const filename = match?.[1] || `report-${id}.pdf`
-
-      const url = window.URL.createObjectURL(blob)
+      const downloadUrl = json?.data?.downloadUrl
+      if (!downloadUrl) {
+        throw new Error("No download URL received")
+      }
+      // Open URL directly to avoid CORS (fetch from Storage is blocked cross-origin)
       const a = document.createElement("a")
-      a.href = url
-      a.download = filename
+      a.href = downloadUrl
+      a.target = "_blank"
+      a.rel = "noopener noreferrer"
       document.body.appendChild(a)
       a.click()
       a.remove()
-      window.URL.revokeObjectURL(url)
     } catch (e: any) {
       const msg = e?.message || "Failed to download"
       if (/session|login|token|auth/i.test(msg)) {
@@ -2272,28 +2270,24 @@ export default function ReportsPage() {
         return
       }
       const response = await apiRequest(`/reports/${reportId}/download`)
+      const json = await response.json().catch(() => ({}))
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        const msg = data?.error?.message || data?.message || `Download failed (${response.status})`
+        const msg = json?.error?.message || json?.message || `Download failed (${response.status})`
         if (response.status === 401 || /auth|token|login/i.test(msg)) {
           setError("Session expired. Please log in again.")
           return
         }
         throw new Error(msg)
       }
-      const blob = await response.blob()
-      const disposition = response.headers.get("content-disposition") || ""
-      const match = disposition.match(/filename="([^"]+)"/)
-      const filename = match?.[1] || `report-${reportId}.pdf`
-
-      const url = window.URL.createObjectURL(blob)
+      const downloadUrl = json?.data?.downloadUrl
+      if (!downloadUrl) throw new Error("No download URL received")
       const a = document.createElement("a")
-      a.href = url
-      a.download = filename
+      a.href = downloadUrl
+      a.target = "_blank"
+      a.rel = "noopener noreferrer"
       document.body.appendChild(a)
       a.click()
       a.remove()
-      window.URL.revokeObjectURL(url)
     } catch (e: any) {
       const msg = e?.message || "Failed to download"
       if (/session|login|token|auth/i.test(msg)) setError("Session expired. Please log in again.")
@@ -2420,28 +2414,24 @@ export default function ReportsPage() {
         return
       }
       const response = await apiRequest(`/reports/${reportId}/download`)
+      const json = await response.json().catch(() => ({}))
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        const msg = data?.error?.message || data?.message || `Download failed (${response.status})`
+        const msg = json?.error?.message || json?.message || `Download failed (${response.status})`
         if (response.status === 401 || /auth|token|login/i.test(msg)) {
           setError("Session expired. Please log in again.")
           return
         }
         throw new Error(msg)
       }
-      const blob = await response.blob()
-      const disposition = response.headers.get("content-disposition") || ""
-      const match = disposition.match(/filename="([^"]+)"/)
-      const filename = match?.[1] || `report-${reportId}.pdf`
-
-      const url = window.URL.createObjectURL(blob)
+      const downloadUrl = json?.data?.downloadUrl
+      if (!downloadUrl) throw new Error("No download URL received")
       const a = document.createElement("a")
-      a.href = url
-      a.download = filename
+      a.href = downloadUrl
+      a.target = "_blank"
+      a.rel = "noopener noreferrer"
       document.body.appendChild(a)
       a.click()
       a.remove()
-      window.URL.revokeObjectURL(url)
     } catch (e: any) {
       const msg = e?.message || "Failed to download"
       if (/session|login|token|auth/i.test(msg)) setError("Session expired. Please log in again.")

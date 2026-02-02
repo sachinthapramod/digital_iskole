@@ -4,6 +4,7 @@ import reportsService from '../services/reports.service';
 import { sendSuccess, sendError } from '../utils/response';
 import logger from '../utils/logger';
 import { buildStudentReportHtml, buildClassReportHtml, buildSchoolReportHtml, renderHtmlToPdfBuffer } from '../utils/reportsPdf';
+import { uploadReportPdfAndGetSignedUrl } from '../utils/reportStorage';
 
 export class ReportsController {
   async list(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
@@ -90,25 +91,18 @@ export class ReportsController {
         return;
       }
 
-      let pdfBuffer: Buffer | null = null;
+      let pdfBuffer: Buffer;
       try {
         pdfBuffer = await renderHtmlToPdfBuffer(html);
       } catch (pdfError: any) {
-        logger.error('PDF generation failed (serving HTML fallback):', pdfError?.message || pdfError);
-        // Fallback: serve HTML so user can open in browser and use Print → Save as PDF
-        const htmlFilename = (filename || `report-${id}`).replace(/\.pdf$/i, '') + '.html';
-        const notice =
-          '<div style="background:#0ea5e9;color:white;padding:12px 16px;border-radius:8px;margin-bottom:20px;font-family:system-ui,sans-serif;font-size:14px"><strong>Save as PDF:</strong> Use your browser&rsquo;s <strong>Print</strong> (Ctrl+P / Cmd+P) and choose <strong>Save as PDF</strong>.</div>';
-        const htmlWithNotice = html.replace(/<body([^>]*)>/i, `<body$1>${notice}`);
-        res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        res.setHeader('Content-Disposition', `attachment; filename="${htmlFilename}"`);
-        res.status(200).send(htmlWithNotice);
+        logger.error('PDF generation failed:', pdfError?.message || pdfError);
+        sendError(res, 'CREATE_FAILED', 'Failed to generate PDF. Please try again.', 500);
         return;
       }
 
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${filename || `report-${id}.pdf`}"`);
-      res.status(200).send(pdfBuffer);
+      const finalFilename = filename || `report-${id}.pdf`;
+      const downloadUrl = await uploadReportPdfAndGetSignedUrl(id, finalFilename, pdfBuffer);
+      sendSuccess(res, { downloadUrl, filename: finalFilename }, 'Download URL ready');
     } catch (error: any) {
       logger.error('Download report controller error:', error);
       next(error);
