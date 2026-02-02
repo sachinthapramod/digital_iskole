@@ -83,6 +83,24 @@ app.get('/health', (_req, res) => {
 // API routes
 const apiBasePath = process.env.API_BASE_URL?.replace(/^https?:\/\/[^/]+/, '') || '/api';
 
+// API root: friendly response when visiting backend API base URL (e.g. GET /api)
+app.get(apiBasePath, (_req, res) => {
+  res.json({
+    success: true,
+    message: 'Digital Iskole API',
+    docs: 'Use /health for health check. Endpoints: auth, users, academic, attendance, exams, marks, appointments, notices, notifications, reports, settings, upload.',
+    timestamp: new Date().toISOString(),
+  });
+});
+app.get(`${apiBasePath}/`, (_req, res) => {
+  res.json({
+    success: true,
+    message: 'Digital Iskole API',
+    docs: 'Use /health for health check. Endpoints: auth, users, academic, attendance, exams, marks, appointments, notices, notifications, reports, settings, upload.',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.use(`${apiBasePath}/auth`, authRoutes);
 app.use(`${apiBasePath}/users`, generalRateLimiter, usersRoutes);
 app.use(`${apiBasePath}/academic`, generalRateLimiter, academicRoutes);
