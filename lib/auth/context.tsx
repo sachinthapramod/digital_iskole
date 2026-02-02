@@ -85,7 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false)
       return { success: true }
     } catch (error: any) {
-      console.error('Login error:', error)
+      if (process.env.NODE_ENV === 'development') console.error('Login error:', error)
       setIsLoading(false)
       const isNetworkError =
         error?.name === 'TypeError' &&
@@ -118,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })
       }
     } catch (error) {
-      console.error('Logout error:', error)
+      if (process.env.NODE_ENV === 'development') console.error('Logout error:', error)
     } finally {
       setUser(null)
       localStorage.removeItem("digital-iskole-user")
@@ -169,7 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       return false
     } catch (error: any) {
-      console.error('Refresh token error:', error)
+      if (process.env.NODE_ENV === 'development') console.error('Refresh token error:', error)
       // Clear tokens on error
       localStorage.removeItem("digital-iskole-token")
       localStorage.removeItem("digital-iskole-refresh-token")

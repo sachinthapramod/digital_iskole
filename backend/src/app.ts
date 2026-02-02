@@ -61,14 +61,20 @@ app.use((req, _res, next) => {
   next();
 });
 
-// Root: friendly response when visiting backend URL in browser
-app.get('/', (_req, res) => {
-  res.json({
-    success: true,
-    message: 'Digital Iskole API',
-    docs: 'Use /health for health check. API routes are under /api (e.g. /api/auth/login).',
-    timestamp: new Date().toISOString(),
-  });
+// Root / API root: friendly response (handles GET /, /api, empty path for Vercel/live deployment)
+const rootPayload = {
+  success: true,
+  message: 'Digital Iskole API',
+  docs: 'Use /health for health check. Endpoints: auth, users, academic, attendance, exams, marks, appointments, notices, notifications, reports, settings, upload.',
+  timestamp: new Date().toISOString(),
+};
+app.use((req, res, next) => {
+  if (req.method !== 'GET') return next();
+  const path = (req.path || req.url || '').replace(/\?.*$/, '').replace(/\/$/, '') || '/';
+  if (path === '/' || path === '' || path === '/api') {
+    return res.json(rootPayload);
+  }
+  next();
 });
 
 // Health check endpoint
@@ -82,24 +88,6 @@ app.get('/health', (_req, res) => {
 
 // API routes
 const apiBasePath = process.env.API_BASE_URL?.replace(/^https?:\/\/[^/]+/, '') || '/api';
-
-// API root: friendly response when visiting backend API base URL (e.g. GET /api)
-app.get(apiBasePath, (_req, res) => {
-  res.json({
-    success: true,
-    message: 'Digital Iskole API',
-    docs: 'Use /health for health check. Endpoints: auth, users, academic, attendance, exams, marks, appointments, notices, notifications, reports, settings, upload.',
-    timestamp: new Date().toISOString(),
-  });
-});
-app.get(`${apiBasePath}/`, (_req, res) => {
-  res.json({
-    success: true,
-    message: 'Digital Iskole API',
-    docs: 'Use /health for health check. Endpoints: auth, users, academic, attendance, exams, marks, appointments, notices, notifications, reports, settings, upload.',
-    timestamp: new Date().toISOString(),
-  });
-});
 
 app.use(`${apiBasePath}/auth`, authRoutes);
 app.use(`${apiBasePath}/users`, generalRateLimiter, usersRoutes);

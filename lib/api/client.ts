@@ -5,10 +5,7 @@
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 
-// Log API URL in development for debugging
-if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-  console.log('API URL:', API_URL);
-}
+const isDev = typeof window !== 'undefined' && process.env.NODE_ENV === 'development';
 
 let isRefreshing = false;
 let refreshPromise: Promise<string | null> | null = null;
@@ -52,7 +49,7 @@ async function refreshAccessToken(): Promise<string | null> {
 
       throw new Error('No token in refresh response');
     } catch (error: any) {
-      console.error('Token refresh error:', error);
+      if (isDev) console.error('Token refresh error:', error);
       // Clear tokens and redirect to login
       localStorage.removeItem('digital-iskole-token');
       localStorage.removeItem('digital-iskole-refresh-token');
@@ -89,8 +86,6 @@ export async function apiRequest(
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
-  } else {
-    console.warn('No token found in localStorage for request to:', endpoint);
   }
 
   let response: Response;
@@ -102,14 +97,9 @@ export async function apiRequest(
   } catch (error: any) {
     // Network error or CORS issue
     const errorMessage = error?.message || 'Unknown error'
-    const errorDetails = {
-      endpoint: `${API_URL}${endpoint}`,
-      error: errorMessage,
-      API_URL,
-      errorType: error?.name || 'NetworkError',
+    if (isDev) {
+      console.error('API request failed:', { endpoint: `${API_URL}${endpoint}`, error: errorMessage });
     }
-    
-    console.error('API request failed:', errorDetails);
     
     // Provide more helpful error message
     if (errorMessage === 'Failed to fetch' || errorMessage.includes('fetch')) {

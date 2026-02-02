@@ -102,28 +102,20 @@ export default function AppointmentsPage() {
 
   const fetchChildren = async () => {
     try {
-      if (!user) {
-        console.log('No user found, cannot fetch children')
-        return
-      }
-
-      console.log('Fetching children for user:', user.id, user.role)
+      if (!user) return
 
       // Get parent's children using "me" endpoint
       const response = await apiRequest('/users/parents/me/children')
       const data = await response.json()
 
-      console.log('Children response:', { status: response.status, data })
-
       if (response.ok && data.data?.children) {
-        console.log('Children loaded:', data.data.children)
         setChildren(data.data.children)
       } else {
-        console.error('Failed to fetch children:', data)
+        if (process.env.NODE_ENV === 'development') console.error('Failed to fetch children:', data)
         setError(data.message || 'Failed to load children')
       }
     } catch (err: any) {
-      console.error('Fetch children error:', err)
+      if (process.env.NODE_ENV === 'development') console.error('Fetch children error:', err)
       setError(err.message || 'Failed to load children')
     }
   }
@@ -171,7 +163,7 @@ export default function AppointmentsPage() {
         setTimeout(() => setError(null), 5000)
       }
     } catch (err: any) {
-      console.error('Update appointment status error:', err)
+      if (process.env.NODE_ENV === 'development') console.error('Update appointment status error:', err)
       setError(`Failed to ${status} appointment`)
       setTimeout(() => setError(null), 5000)
     } finally {
@@ -201,8 +193,6 @@ export default function AppointmentsPage() {
         reason: newAppointment.reason,
       }
 
-      console.log('Creating appointment with data:', requestData)
-
       const response = await apiRequest('/appointments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -210,7 +200,6 @@ export default function AppointmentsPage() {
       })
 
       const data = await response.json()
-      console.log('Appointment creation response:', { status: response.status, data })
 
       if (response.ok && data.data?.appointment) {
         setAppointments((prev) => [data.data.appointment, ...prev])
@@ -219,16 +208,15 @@ export default function AppointmentsPage() {
         setNewAppointment({ date: "", time: "", reason: "" })
         setSuccess('Appointment requested successfully!')
         setTimeout(() => setSuccess(null), 3000)
-        // Refresh appointments list
         fetchAppointments()
       } else {
         const errorMsg = data.message || data.error?.message || 'Failed to create appointment'
-        console.error('Appointment creation failed:', errorMsg)
+        if (process.env.NODE_ENV === 'development') console.error('Appointment creation failed:', errorMsg)
         setError(errorMsg)
         setTimeout(() => setError(null), 5000)
       }
     } catch (err: any) {
-      console.error('Create appointment error:', err)
+      if (process.env.NODE_ENV === 'development') console.error('Create appointment error:', err)
       setError(err.message || 'Failed to create appointment. Please try again.')
       setTimeout(() => setError(null), 5000)
     } finally {
