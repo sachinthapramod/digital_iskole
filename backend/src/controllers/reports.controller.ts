@@ -108,7 +108,7 @@ export class ReportsController {
       const report = await reportsService.getReport(id, req.user.uid, req.user.role);
       const data = report.data ?? null;
 
-      // Use cached PDF in Storage if present (avoids Puppeteer on Vercel = no 503)
+      // Only serve from cache (never run Puppeteer on download = no 503 on Vercel)
       const cachedFilename = data?.pdfFilename;
       if (cachedFilename) {
         const cachedUrl = await getSignedUrlForExistingReport(id, cachedFilename);
@@ -118,41 +118,12 @@ export class ReportsController {
         }
       }
 
-      let html: string | null = null;
-      let filename: string | null = null;
-
-      if (report.type === 'student') {
-        const built = buildStudentReportHtml(data || {});
-        html = built.html;
-        filename = built.filename;
-      } else if (report.type === 'class') {
-        const built = buildClassReportHtml(data || {});
-        html = built.html;
-        filename = built.filename;
-      } else if (report.type === 'school') {
-        const built = buildSchoolReportHtml(data || {});
-        html = built.html;
-        filename = built.filename;
-      }
-
-      if (!html) {
-        sendError(res, 'VALIDATION_ERROR', 'PDF download is not available for this report type', 400);
-        return;
-      }
-
-      let pdfBuffer: Buffer;
-      try {
-        pdfBuffer = await renderHtmlToPdfBuffer(html);
-      } catch (pdfError: any) {
-        logger.error('PDF generation failed:', pdfError?.message || pdfError);
-        sendError(res, 'CREATE_FAILED', 'Failed to generate PDF. Please try again.', 500);
-        return;
-      }
-
-      const finalFilename = filename || `report-${id}.pdf`;
-      const { signedUrl, storedFilename } = await uploadReportPdfAndGetSignedUrl(id, finalFilename, pdfBuffer);
-      await reportsService.updateReportPdfPath(id, storedFilename);
-      sendSuccess(res, { downloadUrl: signedUrl, filename: finalFilename }, 'Download URL ready');
+      sendError(
+        res,
+        'PDF_NOT_READY',
+        'PDF is not ready for this report. Please regenerate the report from the Reports page, then try downloading again.',
+        503
+      );
     } catch (error: any) {
       logger.error('Download report controller error:', error);
       next(error);
@@ -224,7 +195,7 @@ export class ReportsController {
         createdByRole: req.user.role,
       });
 
-      await generateAndCacheReportPdf(report.id, 'student', report.data);
+      generateAndCacheReportPdf(report.id, 'student', report.data).catch(() => {});
       sendSuccess(res, { report }, 'Student report generated successfully', 201);
     } catch (error: any) {
       logger.error('Generate student report controller error:', error);
@@ -284,6 +255,7 @@ export class ReportsController {
         createdByRole: req.user.role,
       });
 
+      generateAndCacheReportPdf(report.id, 'class', report.data).catch(() => {});
       sendSuccess(res, { report }, 'Class report generated successfully', 201);
     } catch (error: any) {
       logger.error('Generate class report controller error:', error);
@@ -312,7 +284,7 @@ export class ReportsController {
         createdByRole: req.user.role,
       });
 
-      await generateAndCacheReportPdf(report.id, 'school', report.data);
+      generateAndCacheReportPdf(report.id, 'school', report.data).catch(() => {});
       sendSuccess(res, { report }, 'School report generated successfully', 201);
     } catch (error: any) {
       logger.error('Generate school report controller error:', error);
