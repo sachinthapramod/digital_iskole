@@ -117,6 +117,7 @@ export class MarksService {
       admissionNumber: string;
       marks: number;
       remarks?: string;
+      examPaperUrl?: string;
     }>;
     enteredBy: string;
     enteredByName: string;
@@ -200,6 +201,7 @@ export class MarksService {
           grade,
           percentage: Math.round(percentage * 100) / 100,
           remarks: markEntry.remarks,
+          examPaperUrl: markEntry.examPaperUrl,
           enteredBy: data.enteredBy,
           enteredByName: data.enteredByName,
           createdAt: Timestamp.now(),
@@ -281,6 +283,7 @@ export class MarksService {
     marks?: number;
     remarks?: string;
     totalMarks?: number;
+    examPaperUrl?: string | null;
   }): Promise<any> {
     try {
       const markDoc = await db.collection('marks').doc(id).get();
@@ -314,6 +317,9 @@ export class MarksService {
       }
       if (data.totalMarks !== undefined) {
         updateData.totalMarks = data.totalMarks;
+      }
+      if (data.examPaperUrl !== undefined) {
+        updateData.examPaperUrl = data.examPaperUrl || null;
       }
 
       await db.collection('marks').doc(id).update(updateData);

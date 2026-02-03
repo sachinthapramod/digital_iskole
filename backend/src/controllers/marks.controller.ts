@@ -79,12 +79,13 @@ export class MarksController {
   async updateMark(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
-      const { marks, remarks, totalMarks } = req.body;
+      const { marks, remarks, totalMarks, examPaperUrl } = req.body;
       
       const updatedMark = await marksService.updateMark(id, {
         marks,
         remarks,
         totalMarks,
+        examPaperUrl,
       });
       
       sendSuccess(res, { mark: updatedMark }, 'Mark updated successfully');

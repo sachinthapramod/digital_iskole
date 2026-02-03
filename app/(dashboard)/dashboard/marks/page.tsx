@@ -127,15 +127,21 @@ function ExamPaperUploader({
   studentName,
   currentPaper,
   onUpload,
+  isUploading = false,
 }: {
   studentId: string
   studentName: string
   currentPaper: string | null
   onUpload: (studentId: string, file: File | null) => void
+  isUploading?: boolean
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [preview, setPreview] = useState<string | null>(currentPaper)
   const [fileName, setFileName] = useState<string | null>(null)
+
+  useEffect(() => {
+    setPreview(currentPaper)
+  }, [currentPaper])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -162,8 +168,13 @@ function ExamPaperUploader({
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-1 bg-transparent">
-          {currentPaper ? (
+        <Button variant="outline" size="sm" className="gap-1 bg-transparent" disabled={isUploading}>
+          {isUploading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Uploading…
+            </>
+          ) : currentPaper ? (
             <>
               <Eye className="h-4 w-4" />
               View/Edit
@@ -548,16 +559,17 @@ export default function MarksPage() {
         const marksMap: Record<string, any> = {}
         const marksValues: Record<string, number> = {}
         const remarksMap: Record<string, string> = {}
-        
+        const papersMap: Record<string, string | null> = {}
         marksList.forEach((mark: any) => {
           marksMap[mark.studentId] = mark
           marksValues[mark.studentId] = mark.marks
           remarksMap[mark.studentId] = mark.remarks || ''
+          if (mark.examPaperUrl) papersMap[`${mark.studentId}_${selectedSubject}`] = mark.examPaperUrl
         })
-        
         setExistingMarks(marksMap)
         setMarks((prev) => ({ ...prev, ...marksValues }))
         setRemarks(remarksMap)
+        setExamPapers((prev) => ({ ...prev, ...papersMap }))
       }
     } catch (err: any) {
       console.error('Fetch existing marks error:', err)
@@ -629,13 +641,42 @@ export default function MarksPage() {
     setRemarks((prev) => ({ ...prev, [studentId]: value }))
   }
 
-  const handleExamPaperUpload = (studentId: string, file: File | null) => {
-    if (file) {
-      // In real app, this would upload to storage and get URL
-      const fakeUrl = URL.createObjectURL(file)
-      setExamPapers((prev) => ({ ...prev, [studentId]: fakeUrl }))
-    } else {
-      setExamPapers((prev) => ({ ...prev, [studentId]: null }))
+  const [uploadingPaperStudentId, setUploadingPaperStudentId] = useState<string | null>(null)
+
+  const handleExamPaperUpload = async (studentId: string, file: File | null) => {
+    if (!file) {
+      const key = `${studentId}_${selectedSubject}`
+      setExamPapers((prev) => ({ ...prev, [key]: null }))
+      return
+    }
+    if (!selectedExam) {
+      setError('Please select an exam first.')
+      return
+    }
+    setUploadingPaperStudentId(studentId)
+    setError(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('studentId', studentId)
+      formData.append('examId', selectedExam)
+      const response = await apiRequest('/upload/exam-paper', {
+        method: 'POST',
+        body: formData,
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.message || data.error?.message || 'Upload failed')
+      }
+      const url = data.url
+      if (url) {
+        const key = `${studentId}_${selectedSubject}`
+        setExamPapers((prev) => ({ ...prev, [key]: url }))
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to upload exam paper')
+    } finally {
+      setUploadingPaperStudentId(null)
     }
   }
 
@@ -653,6 +694,7 @@ export default function MarksPage() {
         admissionNumber: student.rollNo,
         marks: marks[student.id],
         remarks: remarks[student.id] || '',
+        examPaperUrl: examPapers[`${student.id}_${selectedSubject}`] || undefined,
       }))
 
     if (marksToSave.length === 0) {
@@ -1108,8 +1150,9 @@ export default function MarksPage() {
                                 <ExamPaperUploader
                                   studentId={student.id}
                                   studentName={student.name}
-                                  currentPaper={examPapers[student.id]}
+                                  currentPaper={examPapers[`${student.id}_${selectedSubject}`]}
                                   onUpload={handleExamPaperUpload}
+                                  isUploading={uploadingPaperStudentId === student.id}
                                 />
                               </td>
                             </tr>

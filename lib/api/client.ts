@@ -78,14 +78,15 @@ export async function apiRequest(
   options: RequestInit = {}
 ): Promise<Response> {
   const token = localStorage.getItem('digital-iskole-token');
-  
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...options.headers,
   };
 
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
   }
 
   let response: Response;
