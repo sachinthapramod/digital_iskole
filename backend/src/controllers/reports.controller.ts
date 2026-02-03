@@ -6,6 +6,45 @@ import logger from '../utils/logger';
 import { buildStudentReportHtml, buildClassReportHtml, buildSchoolReportHtml, renderHtmlToPdfBuffer } from '../utils/reportsPdf';
 import { uploadReportPdfAndGetSignedUrl, getSignedUrlForExistingReport } from '../utils/reportStorage';
 
+/** Build HTML and filename for a report (for PDF generation). */
+function buildReportHtmlAndFilename(
+  type: 'student' | 'class' | 'school',
+  data: any
+): { html: string; filename: string } | null {
+  if (type === 'student') {
+    const built = buildStudentReportHtml(data || {});
+    return { html: built.html, filename: built.filename };
+  }
+  if (type === 'class') {
+    const built = buildClassReportHtml(data || {});
+    return { html: built.html, filename: built.filename };
+  }
+  if (type === 'school') {
+    const built = buildSchoolReportHtml(data || {});
+    return { html: built.html, filename: built.filename };
+  }
+  return null;
+}
+
+/** Pre-generate PDF and cache in Storage so download never runs Puppeteer (avoids 503). */
+async function generateAndCacheReportPdf(
+  reportId: string,
+  reportType: 'student' | 'class' | 'school',
+  data: any
+): Promise<void> {
+  try {
+    const built = buildReportHtmlAndFilename(reportType, data);
+    if (!built?.html) return;
+    const pdfBuffer = await renderHtmlToPdfBuffer(built.html);
+    const filename = built.filename || `report-${reportId}.pdf`;
+    const { storedFilename } = await uploadReportPdfAndGetSignedUrl(reportId, filename, pdfBuffer);
+    await reportsService.updateReportPdfPath(reportId, storedFilename);
+    logger.info(`Report PDF pre-generated: ${reportId}`);
+  } catch (err: any) {
+    logger.warn('Report PDF pre-generation failed (download will generate on demand):', err?.message || err);
+  }
+}
+
 export class ReportsController {
   async list(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -185,6 +224,7 @@ export class ReportsController {
         createdByRole: req.user.role,
       });
 
+      await generateAndCacheReportPdf(report.id, 'student', report.data);
       sendSuccess(res, { report }, 'Student report generated successfully', 201);
     } catch (error: any) {
       logger.error('Generate student report controller error:', error);
@@ -272,6 +312,7 @@ export class ReportsController {
         createdByRole: req.user.role,
       });
 
+      await generateAndCacheReportPdf(report.id, 'school', report.data);
       sendSuccess(res, { report }, 'School report generated successfully', 201);
     } catch (error: any) {
       logger.error('Generate school report controller error:', error);
