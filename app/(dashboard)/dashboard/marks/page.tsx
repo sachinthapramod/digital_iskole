@@ -312,6 +312,7 @@ export default function MarksPage() {
   const [marks, setMarks] = useState<Record<string, number>>({})
   const [remarks, setRemarks] = useState<Record<string, string>>({})
   const [examPapers, setExamPapers] = useState<Record<string, string | null>>({})
+  const [dirtyStudentIds, setDirtyStudentIds] = useState<Set<string>>(new Set())
   
   const [exams, setExams] = useState<Exam[]>([])
   const [classes, setClasses] = useState<Class[]>([])
@@ -570,6 +571,7 @@ export default function MarksPage() {
         setMarks((prev) => ({ ...prev, ...marksValues }))
         setRemarks(remarksMap)
         setExamPapers((prev) => ({ ...prev, ...papersMap }))
+        setDirtyStudentIds(new Set())
       }
     } catch (err: any) {
       console.error('Fetch existing marks error:', err)
@@ -635,15 +637,18 @@ export default function MarksPage() {
   const handleMarksChange = (studentId: string, value: string) => {
     const numValue = Number.parseInt(value) || 0
     setMarks((prev) => ({ ...prev, [studentId]: Math.min(totalMarks, Math.max(0, numValue)) }))
+    setDirtyStudentIds((prev) => new Set(prev).add(studentId))
   }
 
   const handleRemarksChange = (studentId: string, value: string) => {
     setRemarks((prev) => ({ ...prev, [studentId]: value }))
+    setDirtyStudentIds((prev) => new Set(prev).add(studentId))
   }
 
   const [uploadingPaperStudentId, setUploadingPaperStudentId] = useState<string | null>(null)
 
   const handleExamPaperUpload = async (studentId: string, file: File | null) => {
+    setDirtyStudentIds((prev) => new Set(prev).add(studentId))
     if (!file) {
       const key = `${studentId}_${selectedSubject}`
       setExamPapers((prev) => ({ ...prev, [key]: null }))
@@ -685,20 +690,24 @@ export default function MarksPage() {
       setError("Please select exam, class, and subject")
       return
     }
+    if (dirtyStudentIds.size === 0) {
+      setError("No changes to save")
+      return
+    }
 
     const marksToSave = filteredStudents
-      .filter(student => marks[student.id] !== undefined && marks[student.id] > 0)
+      .filter(student => dirtyStudentIds.has(student.id))
       .map(student => ({
         studentId: student.id,
         studentName: student.name,
         admissionNumber: student.rollNo,
-        marks: marks[student.id],
+        marks: marks[student.id] ?? 0,
         remarks: remarks[student.id] || '',
         examPaperUrl: examPapers[`${student.id}_${selectedSubject}`] || undefined,
       }))
 
     if (marksToSave.length === 0) {
-      setError("Please enter marks for at least one student")
+      setError("No changes to save")
       return
     }
 
@@ -730,6 +739,7 @@ export default function MarksPage() {
       }
 
       setSuccess(`Marks saved successfully for ${data.data?.marked || marksToSave.length} students!`)
+      setDirtyStudentIds(new Set())
       await fetchExistingMarks()
       setTimeout(() => setSuccess(null), 3000)
     } catch (err: any) {
