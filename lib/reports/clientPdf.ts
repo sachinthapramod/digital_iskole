@@ -1,16 +1,15 @@
 "use client"
 
-import React from "react"
-import { createRoot } from "react-dom/client"
-import { ReportPrintView, type ReportForPrint } from "./ReportPrintView"
+import type { ReportForPrint } from "./ReportPrintView"
+import { buildReportPrintHtml } from "./reportPrintHtml"
 import { apiRequest } from "@/lib/api/client"
 
-const REPORT_DOWNLOAD_ENDPOINT = "/reports"
 const REPORT_GET_ENDPOINT = "/reports"
 
 /**
- * Generates PDF in the browser from report data and triggers download.
- * Renders into an iframe so the document has no oklch/lab CSS from the host page (html2canvas fails on those).
+ * Generates PDF in the browser from report data.
+ * Uses pure HTML string in a new iframe document (no React, no host CSS) so html2canvas
+ * never sees lab()/oklch() - works in production where host page uses modern color functions.
  */
 export async function generateReportPdfInBrowser(report: ReportForPrint): Promise<void> {
   if (typeof document === "undefined" || typeof window === "undefined") {
@@ -30,16 +29,15 @@ export async function generateReportPdfInBrowser(report: ReportForPrint): Promis
   }
 
   iframeDoc.open()
-  iframeDoc.write("<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body style=\"margin:0;background:#fff;color:#111827;\"></body></html>")
+  iframeDoc.write(
+    "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body style=\"margin:0;background:#ffffff;color:#111827;\"></body></html>"
+  )
   iframeDoc.close()
 
   const body = iframeDoc.body
-  const root = createRoot(body)
-  root.render(
-    React.createElement(ReportPrintView, { report: report as ReportForPrint })
-  )
+  body.innerHTML = buildReportPrintHtml(report as ReportForPrint)
 
-  await new Promise((r) => setTimeout(r, 800))
+  await new Promise((r) => setTimeout(r, 400))
 
   const html2pdf = (await import("html2pdf.js")).default
   const filename = `report-${report?.id ?? "download"}.pdf`
@@ -54,7 +52,6 @@ export async function generateReportPdfInBrowser(report: ReportForPrint): Promis
     .from(body)
     .save()
 
-  root.unmount()
   if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
 }
 
