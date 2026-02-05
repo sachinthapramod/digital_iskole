@@ -20,7 +20,7 @@ export async function generateReportPdfInBrowser(report: ReportForPrint): Promis
   const container = document.createElement("div")
   container.setAttribute("data-report-pdf-root", "true")
   container.style.cssText =
-    "position:fixed;left:-9999px;top:0;width:210mm;min-height:297mm;background:white;z-index:-1"
+    "position:fixed;left:-9999px;top:0;width:210mm;min-height:297mm;background:#ffffff;color:#111827;z-index:-1"
   document.body.appendChild(container)
 
   const root = createRoot(container)
