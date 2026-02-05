@@ -29,6 +29,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useLanguage } from "@/lib/i18n/context"
 import { useAuth } from "@/lib/auth/context"
 import { apiRequest } from "@/lib/api/client"
+import { downloadReportPdf } from "@/lib/reports/clientPdf"
 import {
   GraduationCap,
   FileText,
@@ -259,44 +260,14 @@ function AdminReportsReal() {
     }
   }
 
-  const downloadReport = async (id: string) => {
-    try {
-      setError(null)
-      const token = typeof window !== "undefined" ? localStorage.getItem("digital-iskole-token") : null
-      if (!token) {
-        setError("Session expired. Please log in again.")
-        return
-      }
-      const response = await apiRequest(`/reports/${id}/download`)
-      const json = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        const msg = json?.error?.message || json?.message || `Download failed (${response.status})`
-        if (response.status === 401 || /auth|token|login/i.test(msg)) {
-          setError("Session expired. Please log in again.")
-          return
-        }
-        throw new Error(msg)
-      }
-      const downloadUrl = json?.data?.downloadUrl
-      if (!downloadUrl) {
-        throw new Error("No download URL received")
-      }
-      // Open URL directly to avoid CORS (fetch from Storage is blocked cross-origin)
-      const a = document.createElement("a")
-      a.href = downloadUrl
-      a.target = "_blank"
-      a.rel = "noopener noreferrer"
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-    } catch (e: any) {
-      const msg = e?.message || "Failed to download"
-      if (/session|login|token|auth/i.test(msg)) {
-        setError("Session expired. Please log in again.")
-      } else {
-        setError(msg)
-      }
+  const downloadReport = async (id: string, existingReport?: any) => {
+    setError(null)
+    const token = typeof window !== "undefined" ? localStorage.getItem("digital-iskole-token") : null
+    if (!token) {
+      setError("Session expired. Please log in again.")
+      return
     }
+    await downloadReportPdf(id, { existingReport: existingReport ?? null, onError: setError })
   }
 
   const viewReport = async (id: string) => {
@@ -942,7 +913,7 @@ function AdminReportsReal() {
               Close
             </Button>
             {viewingReport?.id && (
-              <Button onClick={() => { setViewDialogOpen(false); downloadReport(viewingReport.id) }}>
+              <Button onClick={() => { setViewDialogOpen(false); downloadReport(viewingReport.id, viewingReport) }}>
                 <Download className="mr-2 h-4 w-4" />
                 Download PDF
               </Button>
@@ -2262,37 +2233,14 @@ export default function ReportsPage() {
     }
   }
 
-  const handleDownloadPDF = async (reportId: string) => {
-    try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("digital-iskole-token") : null
-      if (!token) {
-        setError("Session expired. Please log in again.")
-        return
-      }
-      const response = await apiRequest(`/reports/${reportId}/download`)
-      const json = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        const msg = json?.error?.message || json?.message || `Download failed (${response.status})`
-        if (response.status === 401 || /auth|token|login/i.test(msg)) {
-          setError("Session expired. Please log in again.")
-          return
-        }
-        throw new Error(msg)
-      }
-      const downloadUrl = json?.data?.downloadUrl
-      if (!downloadUrl) throw new Error("No download URL received")
-      const a = document.createElement("a")
-      a.href = downloadUrl
-      a.target = "_blank"
-      a.rel = "noopener noreferrer"
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-    } catch (e: any) {
-      const msg = e?.message || "Failed to download"
-      if (/session|login|token|auth/i.test(msg)) setError("Session expired. Please log in again.")
-      else setError(msg)
+  const handleDownloadPDF = async (reportId: string, existingReport?: any) => {
+    setError(null)
+    const token = typeof window !== "undefined" ? localStorage.getItem("digital-iskole-token") : null
+    if (!token) {
+      setError("Session expired. Please log in again.")
+      return
     }
+    await downloadReportPdf(reportId, { existingReport: existingReport ?? null, onError: setError })
   }
 
   const handleViewReport = async (reportId: string) => {
@@ -2406,37 +2354,14 @@ export default function ReportsPage() {
     }
   }
 
-  const handleDownloadTeacherPDF = async (reportId: string) => {
-    try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("digital-iskole-token") : null
-      if (!token) {
-        setError("Session expired. Please log in again.")
-        return
-      }
-      const response = await apiRequest(`/reports/${reportId}/download`)
-      const json = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        const msg = json?.error?.message || json?.message || `Download failed (${response.status})`
-        if (response.status === 401 || /auth|token|login/i.test(msg)) {
-          setError("Session expired. Please log in again.")
-          return
-        }
-        throw new Error(msg)
-      }
-      const downloadUrl = json?.data?.downloadUrl
-      if (!downloadUrl) throw new Error("No download URL received")
-      const a = document.createElement("a")
-      a.href = downloadUrl
-      a.target = "_blank"
-      a.rel = "noopener noreferrer"
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-    } catch (e: any) {
-      const msg = e?.message || "Failed to download"
-      if (/session|login|token|auth/i.test(msg)) setError("Session expired. Please log in again.")
-      else setError(msg)
+  const handleDownloadTeacherPDF = async (reportId: string, existingReport?: any) => {
+    setError(null)
+    const token = typeof window !== "undefined" ? localStorage.getItem("digital-iskole-token") : null
+    if (!token) {
+      setError("Session expired. Please log in again.")
+      return
     }
+    await downloadReportPdf(reportId, { existingReport: existingReport ?? null, onError: setError })
   }
 
   const handleViewTeacherReport = async (reportId: string) => {
@@ -4169,7 +4094,7 @@ export default function ReportsPage() {
               Close
             </Button>
             {viewingReport?.id && (
-              <Button onClick={() => { setViewParentDialogOpen(false); handleDownloadPDF(viewingReport.id) }}>
+              <Button onClick={() => { setViewParentDialogOpen(false); handleDownloadPDF(viewingReport.id, viewingReport) }}>
                 <Download className="mr-2 h-4 w-4" />
                 Download PDF
               </Button>
