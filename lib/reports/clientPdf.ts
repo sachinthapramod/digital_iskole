@@ -10,25 +10,36 @@ const REPORT_GET_ENDPOINT = "/reports"
 
 /**
  * Generates PDF in the browser from report data and triggers download.
- * Renders ReportPrintView into a hidden div, then uses html2pdf.js to capture and save.
+ * Renders into an iframe so the document has no oklch/lab CSS from the host page (html2canvas fails on those).
  */
 export async function generateReportPdfInBrowser(report: ReportForPrint): Promise<void> {
   if (typeof document === "undefined" || typeof window === "undefined") {
     throw new Error("PDF can only be generated in the browser")
   }
 
-  const container = document.createElement("div")
-  container.setAttribute("data-report-pdf-root", "true")
-  container.style.cssText =
-    "position:fixed;left:-9999px;top:0;width:210mm;min-height:297mm;background:#ffffff;color:#111827;z-index:-1"
-  document.body.appendChild(container)
+  const iframe = document.createElement("iframe")
+  iframe.setAttribute("data-report-pdf-iframe", "true")
+  iframe.style.cssText =
+    "position:fixed;left:-9999px;top:0;width:210mm;min-height:297mm;border:0;z-index:-1"
+  document.body.appendChild(iframe)
 
-  const root = createRoot(container)
+  const iframeDoc = iframe.contentDocument
+  if (!iframeDoc) {
+    document.body.removeChild(iframe)
+    throw new Error("Could not get iframe document")
+  }
+
+  iframeDoc.open()
+  iframeDoc.write("<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body style=\"margin:0;background:#fff;color:#111827;\"></body></html>")
+  iframeDoc.close()
+
+  const body = iframeDoc.body
+  const root = createRoot(body)
   root.render(
     React.createElement(ReportPrintView, { report: report as ReportForPrint })
   )
 
-  await new Promise((r) => setTimeout(r, 600))
+  await new Promise((r) => setTimeout(r, 800))
 
   const html2pdf = (await import("html2pdf.js")).default
   const filename = `report-${report?.id ?? "download"}.pdf`
@@ -40,11 +51,11 @@ export async function generateReportPdfInBrowser(report: ReportForPrint): Promis
       html2canvas: { scale: 2, useCORS: true },
       jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
     })
-    .from(container)
+    .from(body)
     .save()
 
   root.unmount()
-  if (container.parentNode) container.parentNode.removeChild(container)
+  if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
 }
 
 export interface DownloadReportPdfOptions {
