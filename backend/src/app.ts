@@ -33,15 +33,18 @@ const app: Express = express();
 
 // Security middleware
 app.use(helmet());
-// CORS: allow frontend origin(s). Use comma-separated list for multiple (e.g. production + preview).
+// CORS: allow frontend origin(s). Use comma-separated list for multiple. Must send exactly ONE origin per response.
 const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000';
 const corsOrigins = corsOrigin.split(',').map((o) => o.trim()).filter(Boolean);
+const defaultOrigin = corsOrigins[0] || 'http://localhost:3000';
 app.use(
   cors({
-    origin: corsOrigins.length > 1 ? (origin, cb) => {
-      if (!origin || corsOrigins.includes(origin)) cb(null, true);
-      else cb(null, corsOrigins[0]);
-    } : corsOrigins[0] || 'http://localhost:3000',
+    origin: (origin, cb) => {
+      // No origin (e.g. same-origin or non-browser) → allow, use default for header
+      if (!origin) return cb(null, true);
+      if (corsOrigins.includes(origin)) return cb(null, origin);
+      return cb(null, defaultOrigin);
+    },
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
